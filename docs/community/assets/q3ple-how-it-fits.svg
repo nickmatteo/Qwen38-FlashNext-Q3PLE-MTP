@@ -38,8 +38,8 @@
       <text x="116" y="497" fill="#FFFFFF" font-size="27" font-weight="800">125B main parameters</text>
       <text x="116" y="541" fill="#FFFFFF" font-size="27" font-weight="800">51.2B PLE elements</text>
       <text x="116" y="585" fill="#7CFFB2" font-size="27" font-weight="900">~6B active / token</text>
-      <rect x="116" y="632" width="310" height="58" rx="16" fill="#0A1220" stroke="#324A6B"/>
-      <text x="271" y="669" fill="#DCE7F7" font-size="20" font-weight="700" text-anchor="middle">The PLE table is the pressure point</text>
+      <rect x="106" y="632" width="330" height="58" rx="16" fill="#0A1220" stroke="#324A6B"/>
+      <text x="271" y="669" fill="#DCE7F7" font-size="18" font-weight="700" text-anchor="middle">The PLE table is the pressure point</text>
     </g>
 
     <path d="M480 490 L545 490" stroke="#62D8FF" stroke-width="4" marker-end="url(#arrow)"/>
