@@ -1,0 +1,320 @@
+{
+  "schema": "q3ple-canonical-history-v1",
+  "id": "q3ple_canonical_history_v1",
+  "seed": 38027,
+  "description": "Deterministic multi-turn source-backed history. The final message is a complete assistant turn.",
+  "boundary_tokens": {
+    "minimum": 59000,
+    "maximum": 60000
+  },
+  "benchmark_fixture_ids": [
+    "code_atomic_json_v1",
+    "prose_filled_context_incident_v1"
+  ],
+  "messages": [
+    {
+      "role": "system",
+      "content": "You are a deterministic research assistant. Preserve facts, answer precisely, and finish every turn. The following transcript is the canonical complete-message benchmark history."
+    },
+    {
+      "role": "user",
+      "content": "Turn 01 research note: compare the local runtime, cache behavior, and reproducibility evidence. Record the observation exactly and do not invent a result.",
+      "repeat": 28
+    },
+    {
+      "role": "assistant",
+      "content": "Turn 01 answer: the observation is retained as a measured diagnostic. Runtime identity, prompt identity, resource telemetry, and output hashes must travel with every claim.",
+      "repeat": 28
+    },
+    {
+      "role": "user",
+      "content": "Turn 02 research note: compare the local runtime, cache behavior, and reproducibility evidence. Record the observation exactly and do not invent a result.",
+      "repeat": 28
+    },
+    {
+      "role": "assistant",
+      "content": "Turn 02 answer: the observation is retained as a measured diagnostic. Runtime identity, prompt identity, resource telemetry, and output hashes must travel with every claim.",
+      "repeat": 28
+    },
+    {
+      "role": "user",
+      "content": "Turn 03 research note: compare the local runtime, cache behavior, and reproducibility evidence. Record the observation exactly and do not invent a result.",
+      "repeat": 28
+    },
+    {
+      "role": "assistant",
+      "content": "Turn 03 answer: the observation is retained as a measured diagnostic. Runtime identity, prompt identity, resource telemetry, and output hashes must travel with every claim.",
+      "repeat": 28
+    },
+    {
+      "role": "user",
+      "content": "Turn 04 research note: compare the local runtime, cache behavior, and reproducibility evidence. Record the observation exactly and do not invent a result.",
+      "repeat": 28
+    },
+    {
+      "role": "assistant",
+      "content": "Turn 04 answer: the observation is retained as a measured diagnostic. Runtime identity, prompt identity, resource telemetry, and output hashes must travel with every claim.",
+      "repeat": 28
+    },
+    {
+      "role": "user",
+      "content": "Turn 05 research note: compare the local runtime, cache behavior, and reproducibility evidence. Record the observation exactly and do not invent a result.",
+      "repeat": 28
+    },
+    {
+      "role": "assistant",
+      "content": "Turn 05 answer: the observation is retained as a measured diagnostic. Runtime identity, prompt identity, resource telemetry, and output hashes must travel with every claim.",
+      "repeat": 28
+    },
+    {
+      "role": "user",
+      "content": "Turn 06 research note: compare the local runtime, cache behavior, and reproducibility evidence. Record the observation exactly and do not invent a result.",
+      "repeat": 28
+    },
+    {
+      "role": "assistant",
+      "content": "Turn 06 answer: the observation is retained as a measured diagnostic. Runtime identity, prompt identity, resource telemetry, and output hashes must travel with every claim.",
+      "repeat": 28
+    },
+    {
+      "role": "user",
+      "content": "Turn 07 research note: compare the local runtime, cache behavior, and reproducibility evidence. Record the observation exactly and do not invent a result.",
+      "repeat": 28
+    },
+    {
+      "role": "assistant",
+      "content": "Turn 07 answer: the observation is retained as a measured diagnostic. Runtime identity, prompt identity, resource telemetry, and output hashes must travel with every claim.",
+      "repeat": 28
+    },
+    {
+      "role": "user",
+      "content": "Turn 08 research note: compare the local runtime, cache behavior, and reproducibility evidence. Record the observation exactly and do not invent a result.",
+      "repeat": 28
+    },
+    {
+      "role": "assistant",
+      "content": "Turn 08 answer: the observation is retained as a measured diagnostic. Runtime identity, prompt identity, resource telemetry, and output hashes must travel with every claim.",
+      "repeat": 28
+    },
+    {
+      "role": "user",
+      "content": "Turn 09 research note: compare the local runtime, cache behavior, and reproducibility evidence. Record the observation exactly and do not invent a result.",
+      "repeat": 28
+    },
+    {
+      "role": "assistant",
+      "content": "Turn 09 answer: the observation is retained as a measured diagnostic. Runtime identity, prompt identity, resource telemetry, and output hashes must travel with every claim.",
+      "repeat": 28
+    },
+    {
+      "role": "user",
+      "content": "Turn 10 research note: compare the local runtime, cache behavior, and reproducibility evidence. Record the observation exactly and do not invent a result.",
+      "repeat": 28
+    },
+    {
+      "role": "assistant",
+      "content": "Turn 10 answer: the observation is retained as a measured diagnostic. Runtime identity, prompt identity, resource telemetry, and output hashes must travel with every claim.",
+      "repeat": 28
+    },
+    {
+      "role": "user",
+      "content": "Turn 11 research note: compare the local runtime, cache behavior, and reproducibility evidence. Record the observation exactly and do not invent a result.",
+      "repeat": 28
+    },
+    {
+      "role": "assistant",
+      "content": "Turn 11 answer: the observation is retained as a measured diagnostic. Runtime identity, prompt identity, resource telemetry, and output hashes must travel with every claim.",
+      "repeat": 28
+    },
+    {
+      "role": "user",
+      "content": "Turn 12 research note: compare the local runtime, cache behavior, and reproducibility evidence. Record the observation exactly and do not invent a result.",
+      "repeat": 28
+    },
+    {
+      "role": "assistant",
+      "content": "Turn 12 answer: the observation is retained as a measured diagnostic. Runtime identity, prompt identity, resource telemetry, and output hashes must travel with every claim.",
+      "repeat": 28
+    },
+    {
+      "role": "user",
+      "content": "Turn 13 research note: compare the local runtime, cache behavior, and reproducibility evidence. Record the observation exactly and do not invent a result.",
+      "repeat": 28
+    },
+    {
+      "role": "assistant",
+      "content": "Turn 13 answer: the observation is retained as a measured diagnostic. Runtime identity, prompt identity, resource telemetry, and output hashes must travel with every claim.",
+      "repeat": 28
+    },
+    {
+      "role": "user",
+      "content": "Turn 14 research note: compare the local runtime, cache behavior, and reproducibility evidence. Record the observation exactly and do not invent a result.",
+      "repeat": 28
+    },
+    {
+      "role": "assistant",
+      "content": "Turn 14 answer: the observation is retained as a measured diagnostic. Runtime identity, prompt identity, resource telemetry, and output hashes must travel with every claim.",
+      "repeat": 28
+    },
+    {
+      "role": "user",
+      "content": "Turn 15 research note: compare the local runtime, cache behavior, and reproducibility evidence. Record the observation exactly and do not invent a result.",
+      "repeat": 28
+    },
+    {
+      "role": "assistant",
+      "content": "Turn 15 answer: the observation is retained as a measured diagnostic. Runtime identity, prompt identity, resource telemetry, and output hashes must travel with every claim.",
+      "repeat": 28
+    },
+    {
+      "role": "user",
+      "content": "Turn 16 research note: compare the local runtime, cache behavior, and reproducibility evidence. Record the observation exactly and do not invent a result.",
+      "repeat": 28
+    },
+    {
+      "role": "assistant",
+      "content": "Turn 16 answer: the observation is retained as a measured diagnostic. Runtime identity, prompt identity, resource telemetry, and output hashes must travel with every claim.",
+      "repeat": 28
+    },
+    {
+      "role": "user",
+      "content": "Turn 17 research note: compare the local runtime, cache behavior, and reproducibility evidence. Record the observation exactly and do not invent a result.",
+      "repeat": 28
+    },
+    {
+      "role": "assistant",
+      "content": "Turn 17 answer: the observation is retained as a measured diagnostic. Runtime identity, prompt identity, resource telemetry, and output hashes must travel with every claim.",
+      "repeat": 28
+    },
+    {
+      "role": "user",
+      "content": "Turn 18 research note: compare the local runtime, cache behavior, and reproducibility evidence. Record the observation exactly and do not invent a result.",
+      "repeat": 28
+    },
+    {
+      "role": "assistant",
+      "content": "Turn 18 answer: the observation is retained as a measured diagnostic. Runtime identity, prompt identity, resource telemetry, and output hashes must travel with every claim.",
+      "repeat": 28
+    },
+    {
+      "role": "user",
+      "content": "Turn 19 research note: compare the local runtime, cache behavior, and reproducibility evidence. Record the observation exactly and do not invent a result.",
+      "repeat": 28
+    },
+    {
+      "role": "assistant",
+      "content": "Turn 19 answer: the observation is retained as a measured diagnostic. Runtime identity, prompt identity, resource telemetry, and output hashes must travel with every claim.",
+      "repeat": 28
+    },
+    {
+      "role": "user",
+      "content": "Turn 20 research note: compare the local runtime, cache behavior, and reproducibility evidence. Record the observation exactly and do not invent a result.",
+      "repeat": 28
+    },
+    {
+      "role": "assistant",
+      "content": "Turn 20 answer: the observation is retained as a measured diagnostic. Runtime identity, prompt identity, resource telemetry, and output hashes must travel with every claim.",
+      "repeat": 28
+    },
+    {
+      "role": "user",
+      "content": "Turn 21 research note: compare the local runtime, cache behavior, and reproducibility evidence. Record the observation exactly and do not invent a result.",
+      "repeat": 28
+    },
+    {
+      "role": "assistant",
+      "content": "Turn 21 answer: the observation is retained as a measured diagnostic. Runtime identity, prompt identity, resource telemetry, and output hashes must travel with every claim.",
+      "repeat": 28
+    },
+    {
+      "role": "user",
+      "content": "Turn 22 research note: compare the local runtime, cache behavior, and reproducibility evidence. Record the observation exactly and do not invent a result.",
+      "repeat": 28
+    },
+    {
+      "role": "assistant",
+      "content": "Turn 22 answer: the observation is retained as a measured diagnostic. Runtime identity, prompt identity, resource telemetry, and output hashes must travel with every claim.",
+      "repeat": 28
+    },
+    {
+      "role": "user",
+      "content": "Turn 23 research note: compare the local runtime, cache behavior, and reproducibility evidence. Record the observation exactly and do not invent a result.",
+      "repeat": 28
+    },
+    {
+      "role": "assistant",
+      "content": "Turn 23 answer: the observation is retained as a measured diagnostic. Runtime identity, prompt identity, resource telemetry, and output hashes must travel with every claim.",
+      "repeat": 28
+    },
+    {
+      "role": "user",
+      "content": "Turn 24 research note: compare the local runtime, cache behavior, and reproducibility evidence. Record the observation exactly and do not invent a result.",
+      "repeat": 28
+    },
+    {
+      "role": "assistant",
+      "content": "Turn 24 answer: the observation is retained as a measured diagnostic. Runtime identity, prompt identity, resource telemetry, and output hashes must travel with every claim.",
+      "repeat": 28
+    },
+    {
+      "role": "user",
+      "content": "Turn 25 research note: compare the local runtime, cache behavior, and reproducibility evidence. Record the observation exactly and do not invent a result.",
+      "repeat": 28
+    },
+    {
+      "role": "assistant",
+      "content": "Turn 25 answer: the observation is retained as a measured diagnostic. Runtime identity, prompt identity, resource telemetry, and output hashes must travel with every claim.",
+      "repeat": 28
+    },
+    {
+      "role": "user",
+      "content": "Turn 26 research note: compare the local runtime, cache behavior, and reproducibility evidence. Record the observation exactly and do not invent a result.",
+      "repeat": 28
+    },
+    {
+      "role": "assistant",
+      "content": "Turn 26 answer: the observation is retained as a measured diagnostic. Runtime identity, prompt identity, resource telemetry, and output hashes must travel with every claim.",
+      "repeat": 28
+    },
+    {
+      "role": "user",
+      "content": "Turn 27 research note: compare the local runtime, cache behavior, and reproducibility evidence. Record the observation exactly and do not invent a result.",
+      "repeat": 28
+    },
+    {
+      "role": "assistant",
+      "content": "Turn 27 answer: the observation is retained as a measured diagnostic. Runtime identity, prompt identity, resource telemetry, and output hashes must travel with every claim.",
+      "repeat": 28
+    },
+    {
+      "role": "user",
+      "content": "Turn 28 research note: compare the local runtime, cache behavior, and reproducibility evidence. Record the observation exactly and do not invent a result.",
+      "repeat": 28
+    },
+    {
+      "role": "assistant",
+      "content": "Turn 28 answer: the observation is retained as a measured diagnostic. Runtime identity, prompt identity, resource telemetry, and output hashes must travel with every claim.",
+      "repeat": 28
+    },
+    {
+      "role": "user",
+      "content": "Turn 29 research note: compare the local runtime, cache behavior, and reproducibility evidence. Record the observation exactly and do not invent a result.",
+      "repeat": 28
+    },
+    {
+      "role": "assistant",
+      "content": "Turn 29 answer: the observation is retained as a measured diagnostic. Runtime identity, prompt identity, resource telemetry, and output hashes must travel with every claim.",
+      "repeat": 28
+    },
+    {
+      "role": "user",
+      "content": "Turn 30 research note: compare the local runtime, cache behavior, and reproducibility evidence. Record the observation exactly and do not invent a result.",
+      "repeat": 28
+    },
+    {
+      "role": "assistant",
+      "content": "Turn 30 answer: canonical history complete. This is the final assistant message boundary. The observation is retained as a measured diagnostic. Runtime identity, prompt identity, resource telemetry, and output hashes must travel with every claim.",
+      "repeat": 28
+    }
+  ]
+}

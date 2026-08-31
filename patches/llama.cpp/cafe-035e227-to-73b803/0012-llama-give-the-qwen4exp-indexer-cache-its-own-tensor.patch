@@ -1,0 +1,100 @@
+From fbe17732bdbf594a0d6cc046fc15d7357cdbf75a Mon Sep 17 00:00:00 2001
+From: danielhanchen <unslothshared@gmail.com>
+Date: Thu, 27 Aug 2026 03:41:50 +0000
+Subject: [PATCH 12/36] llama: give the qwen4exp indexer cache its own tensor
+ names
+
+The indexer KV cache and the attention KV cache both named their tensors
+cache_k_l%d, so the Meta backend matched the indexer cache against the
+attention split pattern and aborted in handle_set_rows. Tag the names
+instead, and mirror the indexer cache: it has one key head and its
+projections are mirrored.
+
+(cherry picked from commit a1cdc8181134659766763a17762545a1f0e5db7b)
+---
+ src/llama-kv-cache.cpp          | 7 ++++---
+ src/llama-kv-cache.h            | 4 +++-
+ src/llama-memory-hybrid-idx.cpp | 2 +-
+ src/llama-model.cpp             | 6 ++++++
+ 4 files changed, 14 insertions(+), 5 deletions(-)
+
+diff --git a/src/llama-kv-cache.cpp b/src/llama-kv-cache.cpp
+index ec0f5a753..f815cd766 100644
+--- a/src/llama-kv-cache.cpp
++++ b/src/llama-kv-cache.cpp
+@@ -77,7 +77,8 @@ llama_kv_cache::llama_kv_cache(
+            llama_memory_t   mem_other,
+     const layer_filter_cb & filter,
+     const  layer_reuse_cb & reuse,
+-    const  layer_share_cb & share) :
++    const  layer_share_cb & share,
++             const char *   name_tag) :
+     model(model), hparams(hparams), v_trans(v_trans),
+     n_seq_max(n_seq_max), n_stream(unified ? 1 : n_seq_max), n_pad(n_pad), n_swa(n_swa), swa_type(swa_type),
+     other(static_cast<llama_kv_cache *>(mem_other)),
+@@ -231,8 +232,8 @@ llama_kv_cache::llama_kv_cache(
+         ggml_tensor * k = has_k ? ggml_new_tensor_3d(ctx, type_k, n_embd_k_gqa, kv_size, n_stream) : nullptr;
+         ggml_tensor * v = has_v ? ggml_new_tensor_3d(ctx, type_v, n_embd_v_gqa, kv_size, n_stream) : nullptr;
+ 
+-        has_k && ggml_format_name(k, "cache_k_l%d", il);
+-        has_v && ggml_format_name(v, "cache_v_l%d", il);
++        has_k && ggml_format_name(k, "cache_%sk_l%d", name_tag, il);
++        has_v && ggml_format_name(v, "cache_%sv_l%d", name_tag, il);
+ 
+         std::vector<ggml_tensor *> k_stream;
+         std::vector<ggml_tensor *> v_stream;
+diff --git a/src/llama-kv-cache.h b/src/llama-kv-cache.h
+index 6cb6dbd2f..f00ec2137 100644
+--- a/src/llama-kv-cache.h
++++ b/src/llama-kv-cache.h
+@@ -112,7 +112,9 @@ public:
+                llama_memory_t   mem_other,
+         const layer_filter_cb & filter,
+         const  layer_reuse_cb & reuse,
+-        const  layer_share_cb & share);
++        const  layer_share_cb & share,
++        // a model can hold more than one cache, so the tensor names have to stay unique
++                 const char *   name_tag = "");
+ 
+     ~llama_kv_cache() = default;
+ 
+diff --git a/src/llama-memory-hybrid-idx.cpp b/src/llama-memory-hybrid-idx.cpp
+index 35059baf6..e7f6e565d 100644
+--- a/src/llama-memory-hybrid-idx.cpp
++++ b/src/llama-memory-hybrid-idx.cpp
+@@ -55,7 +55,7 @@ llama_memory_hybrid_idx::llama_memory_hybrid_idx(
+         return new llama_kv_cache(
+             model, hparams_idx, type_k, type_v, v_trans, offload, unified,
+             kv_size, n_seq_max, n_pad, n_swa, swa_type,
+-            nullptr, filter_idx, nullptr, nullptr);
++            nullptr, filter_idx, nullptr, nullptr, "idx_");
+     }()) {}
+ 
+ llama_memory_context_ptr llama_memory_hybrid_idx::init_batch(llama_batch_allocr & balloc, uint32_t n_ubatch, bool embd_all) {
+diff --git a/src/llama-model.cpp b/src/llama-model.cpp
+index 8b24ed5ec..078ef9f81 100644
+--- a/src/llama-model.cpp
++++ b/src/llama-model.cpp
+@@ -379,6 +379,7 @@ struct ggml_backend_meta_split_state llama_meta_device_get_split_state(const str
+     static const std::regex pattern_qkv_bias        ("blk\\.\\d*\\.attn_qkv.bias");
+     static const std::regex pattern_qk_norm         ("blk\\.\\d*\\.attn_(q|k)_norm\\.weight");
+     static const std::regex pattern_kv_cache        ("cache_(k|v)_l\\d*");
++    static const std::regex pattern_idx_cache       ("cache_idx_(k|v)_l\\d*");
+     static const std::regex pattern_dsv4_state      ("dsv4_(csa|hca|lid)_state_(kv|score)_l\\d*");
+     static const std::regex pattern_attn_sinks      ("blk\\.\\d*\\.attn_sinks.weight");
+     static const std::regex pattern_attn_out_weight ("blk\\.\\d*\\.attn_output.weight");
+@@ -491,6 +492,11 @@ struct ggml_backend_meta_split_state llama_meta_device_get_split_state(const str
+             }
+         }
+ 
++        // the qsa indexer has one key head and its projections are mirrored, so its cache cannot be split
++        if (std::regex_match(tensor_name, pattern_idx_cache)) {
++            return get_tensor_config_impl(GGML_BACKEND_SPLIT_AXIS_MIRRORED);
++        }
++
+         // standard attention
+         if (std::regex_match(tensor_name, pattern_q_weight) || std::regex_match(tensor_name, pattern_kv_weight)) {
+             return get_tensor_config_impl(GGML_BACKEND_SPLIT_AXIS_1, "attn_output.weight", "ssm_out.weight");
+-- 
+2.40.0.windows.1
+

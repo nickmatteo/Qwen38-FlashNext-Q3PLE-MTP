@@ -1,0 +1,508 @@
+{
+  "schema_version": "q38-benchmark-manifest-v1",
+  "suite_id": "PUBLIC-BENCH-001",
+  "title": "Qwen3.8 Q3_PLE and learned-MTP public benchmark",
+  "status": "READY_FOR_CONTRACT_VALIDATION",
+  "result_schema": "benchmarks/result.schema.json",
+  "evidence_policy": {
+    "classes": [
+      "MEASURED",
+      "PROXY",
+      "ANALYTICAL",
+      "EXTERNAL"
+    ],
+    "statuses": [
+      "VALID",
+      "VOID",
+      "FAILED",
+      "BLOCKED"
+    ],
+    "target_before_mtp": true,
+    "require_exact_mtp_text": true,
+    "require_exact_mtp_tokens": true,
+    "preserve_negative_results": true,
+    "visual_evidence": {
+      "protocol": "docs/BENCHMARK_EVIDENCE_CAPTURE.md",
+      "diagnostic_helper": "scripts/Capture-BenchmarkDiagnostics.ps1",
+      "required_for_promoted_performance": true,
+      "screenshots_are_corroborating": true,
+      "required_stages": [
+        "preflight",
+        "loaded",
+        "steady",
+        "result",
+        "postflight"
+      ],
+      "format": "png",
+      "manifest_sha256_required": true
+    },
+    "forbid_aggregate_throughput_as_decode": true,
+    "forbid_allocated_context_as_occupied": true,
+    "historical_measurement_exclusions": [
+      {
+        "summary": "results/QWEN38-MTP-PROTOTYPE-001/mtp_statefix_benchmark_20260829.json",
+        "raw_code": "logs/QWEN38-MTP-PROTOTYPE-001/runtime-bench-code-mtp-r1.json",
+        "raw_prose": "logs/QWEN38-MTP-PROTOTYPE-001/runtime-bench-final-mtp-r1.json",
+        "reason": "Uses the earlier AtomicChat Q4_K_M target, llama.cpp-qwen38-bf16-dispatch-diag runtime, and 2.786 GB Q4_K_M sidecar. It is historical state-fix evidence, not a benchmark of the promoted Q3_PLE target and 2.20 GB sidecar."
+      }
+    ]
+  },
+  "artifacts": {
+    "target": {
+      "base_model": "Qwen/Qwen3.8-Flash-Next",
+      "base_revision": "f5d08274bafd880402bd16f5e3e6c514136ec06c",
+      "immediate_source": "AtomicChat/Qwen3.8-Flash-Next-GGUF",
+      "immediate_source_revision": "142262902a46f7daed19c79d0771534c8106ad59",
+      "local_first_shard": "artifacts/models/AtomicChat/Qwen3.8-Flash-Next-AD-4.27bpw-Q3_PLE-M64/Qwen3.8-Flash-Next-AD-4.27bpw-Q3_PLE-M64-00001-of-00033.gguf",
+      "manifest": "results/ATOMICCHAT-4.27-Q3PLE-001/gate_b_derivative_manifest.json",
+      "file_count": 33,
+      "bytes": 78525318176,
+      "quant_recipe": "atomicchat-4.27bpw-q3_ple-m64-v1"
+    },
+    "draft": {
+      "local_path": "artifacts/models/Qwen3.8-Flash-Next-MTP-Q4_K_M-FC-HC/mtp-Qwen3.8-Flash-Next-DOWNQ4-FC-HC-OUTQ4.gguf",
+      "bytes": 2202883264,
+      "sha256": "7e9f2b282dc62534313b30738e0ad114c14e1a58b9c1e7bb9715dcf9c4ca676e",
+      "quant_recipe": "mtp-downq4-fc-hc-outq4-v1"
+    }
+  },
+  "runtime": {
+    "repository": "local llama.cpp cluster/q3ple-mtp",
+    "commit": "4c3ee4526a5fb7555c9c5ef02c09ef1ff0cf25cc",
+    "server": "workstreams/llama.cpp-q3ple-mtp/build-win-cuda-q3ple-mtp/bin/llama-server.exe",
+    "server_sha256": "72bb9839c156abbba5d55b0ca3f2d7f89a931acaa8a32ba40a8d76bbb4b67436",
+    "build": 10690,
+    "cuda": "13.1",
+    "backend": "CUDA SM120a",
+    "llama_bench": null,
+    "llama_perplexity": null,
+    "missing_tools_are_blocking": true
+  },
+  "resource_policy": {
+    "preflight_ram_available_gib": 40,
+    "preflight_vram_free_mib": 8192,
+    "preflight_gpu_util_max_pct": 15,
+    "hard_stop_ram_available_gib": 6,
+    "hard_stop_vram_free_mib": 768,
+    "promotion_vram_free_mib": 1024,
+    "hard_stop_owned_rss_gib": 50,
+    "hard_stop_pagefile_growth_gib": 1,
+    "occupied_prompt_ratio_min": 0.99,
+    "release_repeats": 3
+  },
+  "fixtures": {
+    "performance": "benchmarks/fixtures/performance.jsonl",
+    "context_needles": "benchmarks/fixtures/context_needles.jsonl",
+    "development_smoke": "tests/development_eval_v1.jsonl",
+    "ppl_corpora": [
+      "results/A0-QUALITY-001/development_corpus_v1.txt"
+    ],
+    "local_only_ppl_corpora": [
+      {
+        "path": "results/A0-QUALITY-001/independent_corpus_v2.txt",
+        "manifest": "results/A0-QUALITY-001/independent_corpus_v2.txt.manifest.json",
+        "sha256": "593614faedac2d1abe4662e43dcb0a5671c431251a2bec72e8ceb6c03aa035df",
+        "distribution": "EXCLUDED_THIRD_PARTY_SOURCE_CORPUS"
+      }
+    ]
+  },
+  "execution_defaults": {
+    "seed": 38027,
+    "temperature": 0,
+    "parallel": 1,
+    "concurrency": 1,
+    "batch": 2048,
+    "ubatch": 256,
+    "threads": 11,
+    "threads_batch": 11,
+    "flash_attention": true,
+    "cache_prompt": false,
+    "reasoning": "off",
+    "target_kv": "q4_0",
+    "draft_kv": "q4_0",
+    "nmax": 2,
+    "p_min": 0.75
+  },
+  "capability_harness": {
+    "repository": "https://github.com/EleutherAI/lm-evaluation-harness",
+    "revision": "c1b3b3a33e0e17bcb329a3e4dc7825b77cb5d373",
+    "pinned_on": "2026-08-30",
+    "install_status": "NOT_INSTALLED",
+    "longbench_repository": "https://github.com/THUDM/LongBench",
+    "longbench_revision": "2e00731f8d0bff23dc4325161044d0ed8af94c1e",
+    "dataset_revisions": "PIN_BEFORE_RUN"
+  },
+  "required_facets": [
+    "artifact_integrity",
+    "performance",
+    "time_to_first_token",
+    "resource_safety",
+    "mtp_correctness",
+    "quant_regression",
+    "instruction_following",
+    "knowledge",
+    "commonsense",
+    "math",
+    "code",
+    "tool_use",
+    "multilingual",
+    "long_context",
+    "truthfulness"
+  ],
+  "capability_tasks": [
+    {
+      "id": "ifeval",
+      "adapter": "lm_eval",
+      "task": "ifeval",
+      "facets": [
+        "instruction_following"
+      ],
+      "pilot_limit": 100,
+      "release_limit": null,
+      "revision": "PIN_BEFORE_RUN",
+      "unsafe_code": false
+    },
+    {
+      "id": "arc_challenge",
+      "adapter": "lm_eval",
+      "task": "arc_challenge",
+      "facets": [
+        "knowledge",
+        "reasoning"
+      ],
+      "pilot_limit": 200,
+      "release_limit": null,
+      "revision": "PIN_BEFORE_RUN",
+      "unsafe_code": false
+    },
+    {
+      "id": "hellaswag",
+      "adapter": "lm_eval",
+      "task": "hellaswag",
+      "facets": [
+        "commonsense"
+      ],
+      "pilot_limit": 200,
+      "release_limit": null,
+      "revision": "PIN_BEFORE_RUN",
+      "unsafe_code": false
+    },
+    {
+      "id": "mmlu_subjects",
+      "adapter": "lm_eval",
+      "task": "mmlu",
+      "facets": [
+        "knowledge",
+        "reasoning"
+      ],
+      "pilot_limit": 200,
+      "release_limit": null,
+      "revision": "PIN_BEFORE_RUN",
+      "unsafe_code": false
+    },
+    {
+      "id": "gsm8k",
+      "adapter": "lm_eval",
+      "task": "gsm8k",
+      "facets": [
+        "math",
+        "reasoning"
+      ],
+      "pilot_limit": 200,
+      "release_limit": null,
+      "revision": "PIN_BEFORE_RUN",
+      "unsafe_code": false
+    },
+    {
+      "id": "mbpp",
+      "adapter": "lm_eval",
+      "task": "mbpp",
+      "facets": [
+        "code"
+      ],
+      "pilot_limit": 100,
+      "release_limit": null,
+      "revision": "PIN_BEFORE_RUN",
+      "unsafe_code": true
+    },
+    {
+      "id": "tool_json_v1",
+      "adapter": "local",
+      "task": "benchmarks/fixtures/tool_use.jsonl",
+      "facets": [
+        "tool_use",
+        "instruction_following"
+      ],
+      "pilot_limit": 20,
+      "release_limit": 20,
+      "revision": "sha256-at-run",
+      "unsafe_code": false
+    },
+    {
+      "id": "belebele_subset",
+      "adapter": "lm_eval",
+      "task": "belebele",
+      "facets": [
+        "multilingual",
+        "reading_comprehension"
+      ],
+      "pilot_limit": 200,
+      "release_limit": null,
+      "revision": "PIN_BEFORE_RUN",
+      "unsafe_code": false
+    },
+    {
+      "id": "truthfulqa_mc2",
+      "adapter": "lm_eval",
+      "task": "truthfulqa_mc2",
+      "facets": [
+        "truthfulness"
+      ],
+      "pilot_limit": 200,
+      "release_limit": null,
+      "revision": "PIN_BEFORE_RUN",
+      "unsafe_code": false
+    },
+    {
+      "id": "occupied_context_needles",
+      "adapter": "local",
+      "task": "benchmarks/fixtures/context_needles.jsonl",
+      "facets": [
+        "long_context",
+        "resource_safety"
+      ],
+      "pilot_limit": 4,
+      "release_limit": 4,
+      "revision": "sha256-at-run",
+      "unsafe_code": false
+    }
+  ],
+  "stages": [
+    {
+      "id": "artifact_integrity",
+      "kind": "integrity",
+      "facets": [
+        "artifact_integrity"
+      ],
+      "depends_on": [],
+      "gate_status": "READY",
+      "command": "python scripts/benchmark.py validate --manifest benchmarks/manifest.json --require-local-artifacts"
+    },
+    {
+      "id": "target_performance",
+      "kind": "api_performance",
+      "facets": [
+        "performance",
+        "time_to_first_token",
+        "resource_safety"
+      ],
+      "depends_on": [
+        "artifact_integrity"
+      ],
+      "gate_status": "READY_WITH_EXISTING_HARNESS",
+      "command": "Start the frozen target-only server, run compatibility/code/prose fixtures with streamed TTFT, and append q38-public-benchmark-v1 rows"
+    },
+    {
+      "id": "mtp_performance",
+      "kind": "api_performance",
+      "facets": [
+        "performance",
+        "mtp_correctness",
+        "resource_safety"
+      ],
+      "depends_on": [
+        "target_performance"
+      ],
+      "gate_status": "BLOCKED_PROMOTED_ARTIFACT_REJECTION_PARITY",
+      "command": "Rerun compatibility, rejection-bearing code, and rejection-bearing prose with the exact promoted target, sidecar, and runtime; require matching target text/token hashes"
+    },
+    {
+      "id": "occupied_context_target",
+      "kind": "occupied_context",
+      "facets": [
+        "long_context",
+        "resource_safety",
+        "performance"
+      ],
+      "depends_on": [
+        "target_performance"
+      ],
+      "gate_status": "READY_8K_TO_64K",
+      "command": "Run target-only occupied prompts at 8K, 16K, 32K, and 64K with exact needle checks"
+    },
+    {
+      "id": "occupied_context_mtp",
+      "kind": "occupied_context",
+      "facets": [
+        "long_context",
+        "mtp_correctness",
+        "resource_safety"
+      ],
+      "depends_on": [
+        "mtp_performance",
+        "occupied_context_target"
+      ],
+      "gate_status": "BLOCKED_BY_PARITY_AND_60K_FAILURE",
+      "command": "Run MTP occupied-context rows only after target safety and exact-parity gates pass"
+    },
+    {
+      "id": "kv_resource_matrix",
+      "kind": "resource_matrix",
+      "facets": [
+        "resource_safety",
+        "performance"
+      ],
+      "depends_on": [
+        "target_performance"
+      ],
+      "gate_status": "READY",
+      "command": "Measure f16, q8_0, and q4_0 KV at 8K and 16K; use q4_0 only for the 64K capacity gate"
+    },
+    {
+      "id": "quant_regression",
+      "kind": "perplexity",
+      "facets": [
+        "quant_regression"
+      ],
+      "depends_on": [
+        "artifact_integrity"
+      ],
+      "gate_status": "BLOCKED_LLAMA_PERPLEXITY_NOT_BUILT",
+      "command": "Run llama-perplexity on both hashed local corpora with exact context, stride, and scored-token counts"
+    },
+    {
+      "id": "development_smoke",
+      "kind": "local_quality",
+      "facets": [
+        "instruction_following",
+        "knowledge",
+        "math",
+        "code",
+        "tool_use",
+        "multilingual",
+        "long_context"
+      ],
+      "depends_on": [
+        "target_performance"
+      ],
+      "gate_status": "READY_DEVELOPMENT_ONLY",
+      "command": "python scripts/run_development_eval.py --help"
+    },
+    {
+      "id": "capability_pilot",
+      "kind": "public_capability",
+      "facets": [
+        "instruction_following",
+        "knowledge",
+        "commonsense",
+        "math",
+        "code",
+        "tool_use",
+        "multilingual",
+        "truthfulness"
+      ],
+      "depends_on": [
+        "target_performance"
+      ],
+      "gate_status": "BLOCKED_TASK_AND_HARNESS_PINS_REQUIRED",
+      "command": "Pin lm-evaluation-harness and every task revision, verify chat template, then run fixed pilot limits at batch 1 and concurrency 1"
+    },
+    {
+      "id": "capability_release",
+      "kind": "public_capability",
+      "facets": [
+        "instruction_following",
+        "knowledge",
+        "commonsense",
+        "math",
+        "code",
+        "tool_use",
+        "multilingual",
+        "truthfulness"
+      ],
+      "depends_on": [
+        "capability_pilot"
+      ],
+      "gate_status": "BLOCKED_PILOT_REQUIRED",
+      "command": "Run full pinned tasks only after pilot scoring and runtime-budget validation"
+    },
+    {
+      "id": "release_summary",
+      "kind": "report",
+      "facets": [
+        "artifact_integrity",
+        "performance",
+        "resource_safety",
+        "mtp_correctness",
+        "quant_regression",
+        "instruction_following",
+        "knowledge",
+        "commonsense",
+        "math",
+        "code",
+        "tool_use",
+        "multilingual",
+        "long_context",
+        "truthfulness"
+      ],
+      "depends_on": [
+        "occupied_context_mtp",
+        "kv_resource_matrix",
+        "quant_regression",
+        "development_smoke",
+        "capability_release"
+      ],
+      "gate_status": "BLOCKED_DEPENDENCIES",
+      "command": "python scripts/benchmark.py check-results --manifest benchmarks/manifest.json --results results/PUBLIC-BENCH-001/runs.jsonl"
+    }
+  ],
+  "profiles": {
+    "smoke": {
+      "description": "Contract, artifact, deterministic mechanics, and development-only smoke checks",
+      "stages": [
+        "artifact_integrity",
+        "target_performance",
+        "mtp_performance",
+        "development_smoke"
+      ]
+    },
+    "performance": {
+      "description": "Target, MTP, occupied-context, and KV/resource characterization",
+      "stages": [
+        "artifact_integrity",
+        "target_performance",
+        "mtp_performance",
+        "occupied_context_target",
+        "occupied_context_mtp",
+        "kv_resource_matrix"
+      ]
+    },
+    "capability": {
+      "description": "Development, quant-regression, and pinned public capability evaluation",
+      "stages": [
+        "artifact_integrity",
+        "target_performance",
+        "quant_regression",
+        "development_smoke",
+        "capability_pilot",
+        "capability_release"
+      ]
+    },
+    "release": {
+      "description": "All release dependencies and the terminal report gate",
+      "stages": [
+        "artifact_integrity",
+        "target_performance",
+        "mtp_performance",
+        "occupied_context_target",
+        "occupied_context_mtp",
+        "kv_resource_matrix",
+        "quant_regression",
+        "development_smoke",
+        "capability_pilot",
+        "capability_release",
+        "release_summary"
+      ]
+    }
+  }
+}

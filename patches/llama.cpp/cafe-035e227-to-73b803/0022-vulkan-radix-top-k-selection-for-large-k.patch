@@ -1,0 +1,274 @@
+From 233c0d9c3f8f81dde05f73de5bca9d787f26621b Mon Sep 17 00:00:00 2001
+From: Joakim Hansson <joakim.hansson87@gmail.com>
+Date: Fri, 28 Aug 2026 09:50:51 +0000
+Subject: [PATCH 22/36] vulkan: radix top-k selection for large k
+
+The shared-memory TOP_K shaders cap k at 1024; the QSA indexer needs
+k=2051, which previously fell back to the CPU and was worked around
+model-side with a full descending ARGSORT (O(n log^2 n) multi-pass at
+depth, 12x per token in decode and 12x per 2048-row prefill chunk).
+
+New topk_radix.comp: iterative 8-bit radix selection on the
+order-preserving unsigned key transform, one workgroup per row, single
+dispatch, no temporary buffers, exact k with tie handling, indices
+unordered per the ggml_top_k contract. Ported to Vulkan from the HIP
+kernel in EngramHalo.cpp (Aristo94). Routed for k beyond the pipeline
+table; supports_op lifted accordingly.
+
+qwen4exp drops the argsort workaround and calls ggml_top_k directly;
+the gather path pads the unordered selection to the flash attention
+granularity by repeating the first index (pad rows are re-masked).
+
+test-backend-ops TOP_K passes incl. k=9999 over 524k columns with ties.
+Strix Halo (RADV), greedy output char-identical: prefill 313/259/184 ->
+368/315/219 t/s at 16k/32k/64k (with -ub 2048), decode +2-3% at depth.
+
+Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01AUwCGmqs39JdaEFjBmtvDa
+---
+ ggml/src/ggml-vulkan/ggml-vulkan.cpp          |  28 ++++-
+ .../vulkan-shaders/topk_radix.comp            | 118 ++++++++++++++++++
+ .../vulkan-shaders/vulkan-shaders-gen.cpp     |   1 +
+ src/models/qwen4exp.cpp                       |  26 ++--
+ 4 files changed, 156 insertions(+), 17 deletions(-)
+ create mode 100644 ggml/src/ggml-vulkan/vulkan-shaders/topk_radix.comp
+
+diff --git a/ggml/src/ggml-vulkan/ggml-vulkan.cpp b/ggml/src/ggml-vulkan/ggml-vulkan.cpp
+index 3266bdb4c..5b880b35b 100644
+--- a/ggml/src/ggml-vulkan/ggml-vulkan.cpp
++++ b/ggml/src/ggml-vulkan/ggml-vulkan.cpp
+@@ -1045,6 +1045,7 @@ struct vk_device_struct {
+     vk_pipeline pipeline_argsort_f32[num_argsort_pipelines];
+     vk_pipeline pipeline_argsort_large_f32[num_argsort_pipelines];
+     vk_pipeline pipeline_topk_f32[num_topk_pipelines];
++    vk_pipeline pipeline_topk_radix_f32;
+     vk_pipeline pipeline_sum_rows_f32;
+     vk_pipeline pipeline_fwht_f32[4];
+     vk_pipeline pipeline_cumsum_f32;
+@@ -5772,6 +5773,11 @@ static void ggml_vk_load_shaders(vk_device& device, vk_pipeline requested) {
+                 ggml_vk_create_pipeline2(device, device->pipeline_topk_f32[i], "topk_f32_"+std::to_string(i), topk_nary_search_f32_len, topk_nary_search_f32_data, "main", 2, sizeof(vk_op_topk_push_constants), {BLOCK_SIZE, 1, 1}, {BLOCK_SIZE, device->subgroup_size, device->subgroup_size_log2}, 1, true, true, device->subgroup_size);
+             } else if (2 * sizeof(int) * BLOCK_SIZE <= device->properties.limits.maxComputeSharedMemorySize) {
+                 ggml_vk_create_pipeline2(device, device->pipeline_topk_f32[i], "topk_f32_"+std::to_string(i), topk_argsort_f32_len, topk_argsort_f32_data, "main", 2, sizeof(vk_op_topk_push_constants), {BLOCK_SIZE, 1, 1}, {BLOCK_SIZE, NCOLS_PADDED_LOG2}, 1, true);
++        }
++        if (i == 0) {
++            // radix selection for k beyond the shared-memory shaders (one workgroup per row)
++            const uint32_t RADIX_WG = std::min<uint32_t>(1024, 1u << device->max_workgroup_size_log2);
++            ggml_vk_create_pipeline2(device, device->pipeline_topk_radix_f32, "topk_radix_f32", topk_radix_f32_len, topk_radix_f32_data, "main", 2, sizeof(vk_op_topk_push_constants), {RADIX_WG, 1, 1}, {RADIX_WG}, 1, true);
+             }
+         }
+     }
+@@ -13836,6 +13842,23 @@ static void ggml_vk_topk(ggml_backend_vk_context * ctx, vk_context& subctx, cons
+ 
+     vk_op_topk_push_constants pc { ncols, ncols, ncols, k, nrows, 0, 0 };
+ 
++    // k beyond the shared-memory shaders: single-dispatch radix selection, one
++    // workgroup per row, indices in no particular order (the ggml_top_k contract)
++    if (k > (1u << (num_topk_pipelines - 1)) ||
++        ctx->device->pipeline_topk_f32[(uint32_t)log2f(float(k)) + 1] == nullptr) {
++        vk_pipeline pipeline = ctx->device->pipeline_topk_radix_f32;
++        GGML_ASSERT(pipeline != nullptr);
++
++        ggml_pipeline_request_descriptor_sets(ctx, pipeline, 1);
++
++        vk_subbuffer src0_buf = ggml_vk_tensor_subbuffer(ctx, src0);
++        vk_subbuffer dst_buf  = ggml_vk_tensor_subbuffer(ctx, dst);
++
++        std::array<uint32_t, 3> elements = { nrows*pipeline->wg_denoms[0], 1, 1 };
++        ggml_vk_dispatch_pipeline(ctx, subctx, pipeline, { src0_buf, dst_buf }, pc, elements);
++        return;
++    }
++
+     if (ctx->prealloc_x_need_sync) {
+         ggml_vk_sync_buffers(ctx, subctx);
+     }
+@@ -18778,12 +18801,11 @@ static bool ggml_backend_vk_device_supports_op(ggml_backend_dev_t dev, const ggm
+                 if (!ggml_is_contiguous(op) || !ggml_is_contiguous(op->src[0])) {
+                     return false;
+                 }
+-                // We could potentially support larger, using argsort to sort the
+-                // whole thing. Not clear if this is needed.
+                 uint32_t min_pipeline = (uint32_t)log2f(float(op->ne[0])) + 1;
+                 if (min_pipeline >= num_topk_pipelines ||
+                     !device->pipeline_topk_f32[min_pipeline]) {
+-                    return false;
++                    // k beyond the shared-memory shaders runs the radix selection path
++                    return true;
+                 }
+             }
+             return true;
+diff --git a/ggml/src/ggml-vulkan/vulkan-shaders/topk_radix.comp b/ggml/src/ggml-vulkan/vulkan-shaders/topk_radix.comp
+new file mode 100644
+index 000000000..37c355c5d
+--- /dev/null
++++ b/ggml/src/ggml-vulkan/vulkan-shaders/topk_radix.comp
+@@ -0,0 +1,118 @@
++#version 450
++
++#extension GL_EXT_control_flow_attributes : enable
++
++#include "types.glsl"
++
++// Exact top-k selection for rows too wide (or k too large) for the shared-memory
++// nary-search shader: iterative 8-bit radix selection on the order-preserving
++// unsigned transform of the keys, one workgroup per row, no temporary buffers.
++// The resulting indices are in no particular order (the ggml_top_k contract).
++// Ported to Vulkan from the HIP kernel in EngramHalo.cpp (Aristo94).
++
++layout(constant_id = 0) const int BLOCK_SIZE = 1024;
++
++layout(local_size_x_id = 0, local_size_y = 1, local_size_z = 1) in;
++
++layout (binding = 0) readonly  buffer A {float data_a[];};
++layout (binding = 1) writeonly buffer D {int data_d[];};
++
++layout (push_constant) uniform parameter {
++    uint orig_ncols;
++    uint ncols_input;
++    uint ncols_output;
++    uint k;
++    uint nrows;
++    uint first_pass;
++    uint last_pass;
++} p;
++
++shared uint hist[256];
++shared uint sh_prefix;
++shared uint sh_rank;
++shared uint sh_greater;
++shared uint sh_equal;
++
++// map float bits to uint such that unsigned comparison matches float comparison
++uint f2ui(float x) {
++    uint y = floatBitsToUint(x);
++    if ((y & 0x80000000u) != 0u) {
++        y ^= ~0u;
++    } else {
++        y |= 0x80000000u;
++    }
++    return y;
++}
++
++void main() {
++    const uint row  = gl_WorkGroupID.x;
++    const uint tid  = gl_LocalInvocationID.x;
++    const uint wgs  = gl_WorkGroupSize.x;
++    const uint base = row*p.ncols_input;
++
++    if (row >= p.nrows) {
++        return;
++    }
++
++    // find the exact key of the k-th largest element, 8 bits per pass
++    uint prefix = 0u;
++    uint pmask  = 0u;
++    uint rank   = p.k;
++
++    for (int shift = 24; shift >= 0; shift -= 8) {
++        if (tid < 256u) {
++            hist[tid] = 0u;
++        }
++        barrier();
++
++        // count only the elements that still match the prefix found so far
++        for (uint col = tid; col < p.ncols_input; col += wgs) {
++            const uint key = f2ui(data_a[base + col]);
++            if ((key & pmask) == prefix) {
++                atomicAdd(hist[(key >> shift) & 255u], 1u);
++            }
++        }
++        barrier();
++
++        // walk the bins from the largest keys down to the one holding the k-th largest
++        if (tid == 0u) {
++            uint r   = rank;
++            int  bin = 255;
++            while (bin > 0 && hist[bin] < r) {
++                r -= hist[bin];
++                bin--;
++            }
++            sh_prefix = prefix | (uint(bin) << shift);
++            sh_rank   = r;
++        }
++        barrier();
++
++        prefix = sh_prefix;
++        rank   = sh_rank;
++        pmask |= 255u << shift;
++    }
++
++    // gather: all elements strictly greater than the threshold key are in the top k,
++    // ties on the exact threshold fill the remaining `rank` slots
++    if (tid == 0u) {
++        sh_greater = 0u;
++        sh_equal   = 0u;
++    }
++    barrier();
++
++    const uint threshold = prefix;
++    const uint out_base  = row*p.k;
++
++    for (uint col = tid; col < p.ncols_input; col += wgs) {
++        const uint key = f2ui(data_a[base + col]);
++        if (key > threshold) {
++            const uint pos = atomicAdd(sh_greater, 1u);
++            data_d[out_base + pos] = int(col);
++        } else if (key == threshold) {
++            const uint pos = atomicAdd(sh_equal, 1u);
++            if (pos < rank) {
++                data_d[out_base + (p.k - rank) + pos] = int(col);
++            }
++        }
++    }
++}
+diff --git a/ggml/src/ggml-vulkan/vulkan-shaders/vulkan-shaders-gen.cpp b/ggml/src/ggml-vulkan/vulkan-shaders/vulkan-shaders-gen.cpp
+index 37915cf5e..e83261aac 100644
+--- a/ggml/src/ggml-vulkan/vulkan-shaders/vulkan-shaders-gen.cpp
++++ b/ggml/src/ggml-vulkan/vulkan-shaders/vulkan-shaders-gen.cpp
+@@ -1026,6 +1026,7 @@ void process_shaders() {
+ 
+     string_to_spv("topk_argsort_f32", "topk_argsort.comp", {{"A_TYPE", "float"}});
+     string_to_spv("topk_nary_search_f32", "topk_nary_search.comp", {{"A_TYPE", "float"}});
++    string_to_spv("topk_radix_f32", "topk_radix.comp", {});
+ 
+     string_to_spv("argmax_f32", "argmax.comp", merge_maps(base_dict, {{"A_TYPE", "float"}, {"D_TYPE", "int"}}));
+     string_to_spv("sum_rows_f32", "sum_rows.comp", merge_maps(base_dict, {{"A_TYPE", "float"}, {"D_TYPE", "float"}}));
+diff --git a/src/models/qwen4exp.cpp b/src/models/qwen4exp.cpp
+index b980d3c2d..bd4ff4751 100644
+--- a/src/models/qwen4exp.cpp
++++ b/src/models/qwen4exp.cpp
+@@ -948,20 +948,18 @@ ggml_tensor * llama_model_qwen4exp::graph::build_qsa_top_k(
+     // again, so the visible set stays `width`
+     const int64_t n_sel = std::max<int64_t>(width, qsa_gather_n_sel(n_kv, width));
+ 
+-    // the Vulkan backend only runs GGML_OP_TOP_K on the GPU for rows up to 1024 elements;
+-    // beyond that the op falls back to the CPU, which costs a growing GPU<->CPU round trip
+-    // per QSA layer per decode step and is the dominant context-depth slowdown (measured:
+-    // decode drops from 23.5 t/s to 17.4 t/s right as n_kv crosses 1024). full ARGSORT is
+-    // supported at any size, so select through it instead: the first `n_sel` indices of a
+-    // descending argsort are exactly the top-k (tie order may differ, which only permutes
+-    // the selection among equal scores).
+-    ggml_tensor * top_k;
+-    if (n_kv > 1024) {
+-        ggml_tensor * order = ggml_argsort(ctx0, expanded, GGML_SORT_ORDER_DESC);
+-        top_k = ggml_cont(ctx0, ggml_view_3d(ctx0, order, n_sel, order->ne[1], order->ne[2],
+-                order->nb[1], order->nb[2], 0));
+-    } else {
+-        top_k = ggml_cont(ctx0, ggml_top_k(ctx0, expanded, n_sel));
++    // ggml_top_k (radix selection on the Vulkan backend for large k) returns the top
++    // `width` indices in no particular order — every consumer treats the selection as a
++    // set. When the gather path runs, the row count must be padded to n_sel for the flash
++    // attention granularity: repeat the first index; the pad entries are re-masked to
++    // -inf in build_attn_qsa_gather, so duplicates are never visible.
++    ggml_tensor * top_k = ggml_cont(ctx0, ggml_top_k(ctx0, expanded, width));
++
++    if (n_sel > width) {
++        ggml_tensor * first = ggml_view_3d(ctx0, top_k, 1, top_k->ne[1], top_k->ne[2],
++                top_k->nb[1], top_k->nb[2], 0);
++        ggml_tensor * pad = ggml_repeat_4d(ctx0, first, n_sel - width, top_k->ne[1], top_k->ne[2], 1);
++        top_k = ggml_concat(ctx0, top_k, pad, 0);
+     }
+ 
+     // build_attn_qsa reads [n_top_k, n_batch, 1, n_stream], matching the KQ mask.
+-- 
+2.40.0.windows.1
+

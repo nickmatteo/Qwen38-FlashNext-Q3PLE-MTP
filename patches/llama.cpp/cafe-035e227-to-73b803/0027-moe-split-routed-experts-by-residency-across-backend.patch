@@ -1,0 +1,1110 @@
+From 0384f5c660be6541307ee2e360d9567a3affd597 Mon Sep 17 00:00:00 2001
+From: timadinorth <timuraiagent@gmail.com>
+Date: Fri, 28 Aug 2026 22:02:10 -0300
+Subject: [PATCH 27/36] moe: split routed experts by residency across backends
+
+Keep the most used experts of each MoE layer in VRAM and the rest in system
+memory, instead of placing whole layers. The router picks few experts per
+token, so the same VRAM covers far more of the traffic.
+
+Each expert tensor is split offline into a hot and a cold tensor, each with
+n_expert_used trailing zero slots. A foreign assignment at rank iex maps to
+slot base + iex, so a token never uses the same slot twice, which the CUDA
+MoE path requires. CUDA computes the zero slot and gets zeros; the CPU
+backend skips it instead of reading it, which is what keeps the cold branch
+cheap.
+
+- ggml_mul_mat_id_set_mask_from marks the mask slots, off by default
+- GGML_OP_MOE_BRANCH_IDS maps router ids to one branch, CPU and CUDA
+- build_moe_ffn builds two branches and sums them before the weights
+- expert_hot_count hparam plus the split tensor names
+- scripts/split-moe-experts.py rewrites the GGUF and permutes ffn_gate_inp
+- test-backend-ops covers masked MUL_MAT_ID and MOE_BRANCH_IDS
+
+Placement uses the existing -ot mechanism. Dormant on unsplit models.
+
+Measured on Qwen3.8-Flash-Next UD-Q4_K_XL, RTX 5090, 262144 context, q8_0 KV,
+at equal VRAM: 20.5 tok/s to 31-36 tok/s on mixed coding work, about 1.6x,
+with prefill unchanged and output identical to the unsplit model.
+
+Assisted-by: Claude Opus 5 (1M context)
+---
+ ggml/include/ggml.h                   |  20 +++++
+ ggml/src/ggml-cpu/ggml-cpu.c          |  12 +++
+ ggml/src/ggml-cpu/ops.cpp             |  25 ++++++
+ ggml/src/ggml-cpu/ops.h               |   1 +
+ ggml/src/ggml-cpu/repack.cpp          |   7 ++
+ ggml/src/ggml-cuda/ggml-cuda.cu       |   6 ++
+ ggml/src/ggml-cuda/moe-branch-ids.cu  |  37 +++++++++
+ ggml/src/ggml-cuda/moe-branch-ids.cuh |   5 ++
+ ggml/src/ggml.c                       |  40 ++++++++-
+ scripts/split-moe-experts.py          | 113 ++++++++++++++++++++++++++
+ src/llama-arch.cpp                    |  17 ++++
+ src/llama-arch.h                      |   9 ++
+ src/llama-graph.cpp                   |  54 ++++++++++--
+ src/llama-graph.h                     |  13 ++-
+ src/llama-hparams.h                   |   2 +
+ src/llama-model.cpp                   |  32 ++++++++
+ src/llama-model.h                     |  11 +++
+ src/models/qwen35moe.cpp              |  32 +++++---
+ src/models/qwen4exp.cpp               |  18 ++--
+ tests/test-backend-ops.cpp            | 102 +++++++++++++++++++++--
+ 20 files changed, 516 insertions(+), 40 deletions(-)
+ create mode 100644 ggml/src/ggml-cuda/moe-branch-ids.cu
+ create mode 100644 ggml/src/ggml-cuda/moe-branch-ids.cuh
+ create mode 100644 scripts/split-moe-experts.py
+
+diff --git a/ggml/include/ggml.h b/ggml/include/ggml.h
+index 5f6774a63..c1b947041 100644
+--- a/ggml/include/ggml.h
++++ b/ggml/include/ggml.h
+@@ -590,6 +590,8 @@ extern "C" {
+ 
+         GGML_OP_GLU,
+ 
++        GGML_OP_MOE_BRANCH_IDS,
++
+         GGML_OP_COUNT,
+     };
+ 
+@@ -1448,6 +1450,24 @@ extern "C" {
+             struct ggml_tensor  * b,
+             struct ggml_tensor  * ids);
+ 
++    // marks the experts of `as` from `first` onwards as mask slots. they must hold zeros, so a
++    // backend that computes them produces zeros, and the CPU backend skips them instead.
++    // there must be one slot per expert rank: a token may not use the same expert twice.
++    // used to split one expert set across backends. first < 0 disables it, which is the default.
++    // maps router ids to the local numbering of one expert branch:
++    // an id in [lo, hi) becomes id - lo, any other id becomes mask_base + its rank.
++    // the mask slots must hold zeros, see ggml_mul_mat_id_set_mask_from.
++    GGML_API struct ggml_tensor * ggml_moe_branch_ids(
++            struct ggml_context * ctx,
++            struct ggml_tensor  * ids,
++            int32_t               lo,
++            int32_t               hi,
++            int32_t               mask_base);
++
++    GGML_API void ggml_mul_mat_id_set_mask_from(
++            struct ggml_tensor  * a,
++            int32_t               first);
++
+     // A: m columns, n rows,
+     // B: p columns, n rows,
+     // result is m columns, p rows
+diff --git a/ggml/src/ggml-cpu/ggml-cpu.c b/ggml/src/ggml-cpu/ggml-cpu.c
+index 87ac0a702..957bd537d 100644
+--- a/ggml/src/ggml-cpu/ggml-cpu.c
++++ b/ggml/src/ggml-cpu/ggml-cpu.c
+@@ -1547,6 +1547,7 @@ static void ggml_compute_forward_mul_mat_id(
+     const enum ggml_type type = src0->type;
+ 
+     const bool src1_cont = ggml_is_contiguous(src1);
++    const int32_t mask_from = ggml_get_op_params_i32(dst, 0) - 1;
+ 
+     enum ggml_type    const vec_dot_type    = type_traits_cpu[type].vec_dot_type;
+     ggml_from_float_t const from_float      = type_traits_cpu[vec_dot_type].from_float;
+@@ -1630,6 +1631,12 @@ static void ggml_compute_forward_mul_mat_id(
+ 
+                 assert(i02 >= 0 && i02 < n_as);
+ 
++                if (mask_from >= 0 && i02 >= mask_from) {
++                    // mask slots hold zeros, write them without reading the weights
++                    memset((char *) dst->data + id*nb1 + iid1*nb2, 0, ne0*sizeof(float));
++                    continue;
++                }
++
+                 MMID_MATRIX_ROW(i02, matrix_row_counts[i02]) = (struct mmid_row_mapping) {id, iid1};
+                 matrix_row_counts[i02] += 1;
+             }
+@@ -1733,6 +1740,10 @@ static void ggml_compute_forward(struct ggml_compute_params * params, struct ggm
+             {
+                 ggml_compute_forward_add_id(params, tensor);
+             } break;
++        case GGML_OP_MOE_BRANCH_IDS:
++            {
++                ggml_compute_forward_moe_branch_ids(params, tensor);
++            } break;
+         case GGML_OP_ADD1:
+             {
+                 ggml_compute_forward_add1(params, tensor);
+@@ -2232,6 +2243,7 @@ static int ggml_get_n_tasks(struct ggml_tensor * node, int n_threads) {
+         case GGML_OP_CONT:
+         case GGML_OP_ADD:
+         case GGML_OP_ADD_ID:
++        case GGML_OP_MOE_BRANCH_IDS:
+         case GGML_OP_ADD1:
+         case GGML_OP_ACC:
+         case GGML_OP_CUMSUM:
+diff --git a/ggml/src/ggml-cpu/ops.cpp b/ggml/src/ggml-cpu/ops.cpp
+index b869f4bdd..a6474684f 100644
+--- a/ggml/src/ggml-cpu/ops.cpp
++++ b/ggml/src/ggml-cpu/ops.cpp
+@@ -12019,3 +12019,28 @@ void ggml_compute_forward_lightning_indexer(
+         }
+     }
+ }
++
++
++// ggml_compute_forward_moe_branch_ids
++
++void ggml_compute_forward_moe_branch_ids(const ggml_compute_params * params, ggml_tensor * dst) {
++    const ggml_tensor * ids = dst->src[0];
++
++    GGML_ASSERT(ids->type == GGML_TYPE_I32);
++    GGML_ASSERT(dst->type == GGML_TYPE_I32);
++    GGML_ASSERT(dst->ne[0] == ids->ne[0] && dst->ne[1] == ids->ne[1]);
++
++    const int32_t lo        = ggml_get_op_params_i32(dst, 0);
++    const int32_t hi        = ggml_get_op_params_i32(dst, 1);
++    const int32_t mask_base = ggml_get_op_params_i32(dst, 2);
++
++    for (int64_t i1 = params->ith; i1 < dst->ne[1]; i1 += params->nth) {
++        const int32_t * src_row = (const int32_t *) ((const char *) ids->data + i1*ids->nb[1]);
++              int32_t * dst_row =       (int32_t *) ((      char *) dst->data + i1*dst->nb[1]);
++
++        for (int64_t i0 = 0; i0 < dst->ne[0]; i0++) {
++            const int32_t id = src_row[i0*ids->nb[0]/sizeof(int32_t)];
++            dst_row[i0] = id >= lo && id < hi ? id - lo : mask_base + (int32_t) i0;
++        }
++    }
++}
+diff --git a/ggml/src/ggml-cpu/ops.h b/ggml/src/ggml-cpu/ops.h
+index 4c1642a67..def8c37f4 100644
+--- a/ggml/src/ggml-cpu/ops.h
++++ b/ggml/src/ggml-cpu/ops.h
+@@ -30,6 +30,7 @@ extern "C" {
+ void ggml_compute_forward_dup(const struct ggml_compute_params * params, struct ggml_tensor * dst);
+ void ggml_compute_forward_add(const struct ggml_compute_params * params, struct ggml_tensor * dst);
+ void ggml_compute_forward_add_id(const struct ggml_compute_params * params, struct ggml_tensor * dst);
++void ggml_compute_forward_moe_branch_ids(const struct ggml_compute_params * params, struct ggml_tensor * dst);
+ void ggml_compute_forward_add1(const struct ggml_compute_params * params, struct ggml_tensor * dst);
+ void ggml_compute_forward_acc(const struct ggml_compute_params * params, struct ggml_tensor * dst);
+ void ggml_compute_forward_sum(const struct ggml_compute_params * params, struct ggml_tensor * dst);
+diff --git a/ggml/src/ggml-cpu/repack.cpp b/ggml/src/ggml-cpu/repack.cpp
+index 9689ca3ce..ac6afd892 100644
+--- a/ggml/src/ggml-cpu/repack.cpp
++++ b/ggml/src/ggml-cpu/repack.cpp
+@@ -4415,6 +4415,7 @@ template <typename BLOC_TYPE, int64_t INTER_SIZE, int64_t NB_COLS, ggml_type PAR
+         // row groups
+         const int n_ids = ids->ne[0]; // n_expert_used
+         const int n_as  = ne02;       // n_expert
++        const int32_t mask_from = ggml_get_op_params_i32(op, 0) - 1;
+ 
+         const size_t nbw1 = ggml_row_size(PARAM_TYPE, ne10);
+         const size_t nbw2 = nbw1*ne11;
+@@ -4460,6 +4461,12 @@ template <typename BLOC_TYPE, int64_t INTER_SIZE, int64_t NB_COLS, ggml_type PAR
+ 
+                     GGML_ASSERT(i02 >= 0 && i02 < n_as);
+ 
++                    if (mask_from >= 0 && i02 >= mask_from) {
++                        // mask slots hold zeros, write them without reading the weights
++                        memset((char *) dst->data + id * nb1 + iid1 * nb2, 0, ne0 * sizeof(float));
++                        continue;
++                    }
++
+                     MMID_MATRIX_ROW(i02, matrix_row_counts[i02]) = { id, iid1 };
+                     matrix_row_counts[i02] += 1;
+                 }
+diff --git a/ggml/src/ggml-cuda/ggml-cuda.cu b/ggml/src/ggml-cuda/ggml-cuda.cu
+index 2456f7dcc..b38a2c649 100644
+--- a/ggml/src/ggml-cuda/ggml-cuda.cu
++++ b/ggml/src/ggml-cuda/ggml-cuda.cu
+@@ -28,6 +28,7 @@
+ #include "ggml-cuda/fwht.cuh"
+ #include "ggml-cuda/getrows.cuh"
+ #include "ggml-cuda/im2col.cuh"
++#include "ggml-cuda/moe-branch-ids.cuh"
+ #include "ggml-cuda/mmf.cuh"
+ #include "ggml-cuda/mmq.cuh"
+ #include "ggml-cuda/mmvf.cuh"
+@@ -2099,6 +2100,9 @@ static bool ggml_cuda_compute_forward(ggml_backend_cuda_context & ctx, struct gg
+         case GGML_OP_ADD_ID:
+             ggml_cuda_op_add_id(ctx, dst);
+             break;
++        case GGML_OP_MOE_BRANCH_IDS:
++            ggml_cuda_op_moe_branch_ids(ctx, dst);
++            break;
+         case GGML_OP_SUB:
+             ggml_cuda_op_sub(ctx, dst);
+             break;
+@@ -5179,6 +5183,8 @@ static bool ggml_backend_cuda_device_supports_op(ggml_backend_dev_t dev, const g
+         case GGML_OP_RMS_NORM_BACK:
+             return ggml_is_contiguous(op->src[0]);
+             break;
++        case GGML_OP_MOE_BRANCH_IDS:
++            return op->src[0]->type == GGML_TYPE_I32 && op->type == GGML_TYPE_I32;
+         case GGML_OP_NONE:
+         case GGML_OP_RESHAPE:
+         case GGML_OP_VIEW:
+diff --git a/ggml/src/ggml-cuda/moe-branch-ids.cu b/ggml/src/ggml-cuda/moe-branch-ids.cu
+new file mode 100644
+index 000000000..9b6235665
+--- /dev/null
++++ b/ggml/src/ggml-cuda/moe-branch-ids.cu
+@@ -0,0 +1,37 @@
++#include "moe-branch-ids.cuh"
++
++static __global__ void moe_branch_ids(
++        const int32_t * __restrict__ ids, int32_t * __restrict__ dst,
++        const int ne0, const int ne1, const int s1, const int d1,
++        const int lo, const int hi, const int mask_base) {
++    const int i = blockIdx.x*blockDim.x + threadIdx.x;
++    if (i >= ne0*ne1) {
++        return;
++    }
++    const int i1 = i / ne0;
++    const int i0 = i - i1*ne0;
++    const int id = ids[i1*s1 + i0];
++    dst[i1*d1 + i0] = id >= lo && id < hi ? id - lo : mask_base + i0;
++}
++
++void ggml_cuda_op_moe_branch_ids(ggml_backend_cuda_context & ctx, ggml_tensor * dst) {
++    const ggml_tensor * ids = dst->src[0];
++
++    GGML_ASSERT(ids->type == GGML_TYPE_I32);
++    GGML_ASSERT(dst->type == GGML_TYPE_I32);
++    GGML_ASSERT(ids->nb[0] == sizeof(int32_t));
++    GGML_ASSERT(dst->nb[0] == sizeof(int32_t));
++
++    const int lo        = ggml_get_op_params_i32(dst, 0);
++    const int hi        = ggml_get_op_params_i32(dst, 1);
++    const int mask_base = ggml_get_op_params_i32(dst, 2);
++
++    const int ne0 = dst->ne[0];
++    const int ne1 = dst->ne[1];
++    const int s1  = ids->nb[1]/sizeof(int32_t);
++    const int d1  = dst->nb[1]/sizeof(int32_t);
++
++    const int n = ne0*ne1;
++    moe_branch_ids<<<(n + 255)/256, 256, 0, ctx.stream()>>>(
++        (const int32_t *) ids->data, (int32_t *) dst->data, ne0, ne1, s1, d1, lo, hi, mask_base);
++}
+diff --git a/ggml/src/ggml-cuda/moe-branch-ids.cuh b/ggml/src/ggml-cuda/moe-branch-ids.cuh
+new file mode 100644
+index 000000000..9b09f5c79
+--- /dev/null
++++ b/ggml/src/ggml-cuda/moe-branch-ids.cuh
+@@ -0,0 +1,5 @@
++#pragma once
++
++#include "common.cuh"
++
++void ggml_cuda_op_moe_branch_ids(ggml_backend_cuda_context & ctx, ggml_tensor * dst);
+diff --git a/ggml/src/ggml.c b/ggml/src/ggml.c
+index e0b615c07..c7c180206 100644
+--- a/ggml/src/ggml.c
++++ b/ggml/src/ggml.c
+@@ -1098,9 +1098,11 @@ static const char * GGML_OP_NAME[GGML_OP_COUNT] = {
+     "OPT_STEP_SGD",
+ 
+     "GLU",
++
++    "MOE_BRANCH_IDS",
+ };
+ 
+-static_assert(GGML_OP_COUNT == 101, "GGML_OP_COUNT != 101");
++static_assert(GGML_OP_COUNT == 102, "GGML_OP_COUNT != 102");
+ 
+ static const char * GGML_OP_SYMBOL[GGML_OP_COUNT] = {
+     "none",
+@@ -1213,9 +1215,11 @@ static const char * GGML_OP_SYMBOL[GGML_OP_COUNT] = {
+     "sgd(x)",
+ 
+     "glu(x)",
++
++    "moe_branch_ids(x)",
+ };
+ 
+-static_assert(GGML_OP_COUNT == 101, "GGML_OP_COUNT != 101");
++static_assert(GGML_OP_COUNT == 102, "GGML_OP_COUNT != 102");
+ 
+ static_assert(GGML_OP_POOL_COUNT == 2, "GGML_OP_POOL_COUNT != 2");
+ 
+@@ -3302,6 +3306,38 @@ void ggml_mul_mat_set_prec(
+     ggml_set_op_params_i32(a, 0, prec_i32);
+ }
+ 
++struct ggml_tensor * ggml_moe_branch_ids(
++        struct ggml_context * ctx,
++        struct ggml_tensor  * ids,
++        int32_t               lo,
++        int32_t               hi,
++        int32_t               mask_base) {
++    GGML_ASSERT(ids->type == GGML_TYPE_I32);
++    GGML_ASSERT(lo >= 0 && hi > lo);
++
++    struct ggml_tensor * result = ggml_new_tensor_2d(ctx, GGML_TYPE_I32, ids->ne[0], ids->ne[1]);
++
++    int32_t params[] = { lo, hi, mask_base };
++    ggml_set_op_params(result, params, sizeof(params));
++
++    result->op     = GGML_OP_MOE_BRANCH_IDS;
++    result->src[0] = ids;
++
++    return result;
++}
++
++void ggml_mul_mat_id_set_mask_from(
++        struct ggml_tensor * a,
++        int32_t              first) {
++    GGML_ASSERT(a->op == GGML_OP_MUL_MAT_ID);
++    GGML_ASSERT(first < a->src[0]->ne[2]);
++    // one mask slot per expert rank
++    GGML_ASSERT(first < 0 || a->src[0]->ne[2] - first >= a->src[2]->ne[0]);
++
++    // stored with a bias so that the default of 0 means no mask slots
++    ggml_set_op_params_i32(a, 0, first < 0 ? 0 : first + 1);
++}
++
+ void ggml_mul_mat_set_hint(
+         struct ggml_tensor * a,
+         enum ggml_op_hint    hint) {
+diff --git a/scripts/split-moe-experts.py b/scripts/split-moe-experts.py
+new file mode 100644
+index 000000000..6dae7116a
+--- /dev/null
++++ b/scripts/split-moe-experts.py
+@@ -0,0 +1,113 @@
++#!/usr/bin/env python3
++"""Split the routed experts of a MoE GGUF into a hot and a cold tensor (SPEC.md 4.1).
++
++Each `*_exps` tensor becomes two tensors:
++  <name>_hot   experts [0, H)         followed by n_expert_used zeroed mask slots
++  <name>_cold  experts [H, n_expert)  followed by n_expert_used zeroed mask slots
++`ffn_gate_inp` rows are permuted the same way, so the router emits the new numbering
++directly and no runtime remap of the ids is needed.
++"""
++import argparse, os, sys
++import numpy as np
++
++sys.path.insert(0, "/home/tim/projects/a/llama.cpp/gguf-py")
++from gguf import GGUFReader, GGUFWriter, GGUFEndian
++from gguf.constants import GGMLQuantizationType
++
++
++def main():
++    ap = argparse.ArgumentParser()
++    ap.add_argument("--src", required=True, nargs="+", help="source gguf, or all shards in order")
++    ap.add_argument("--dst", required=True)
++    ap.add_argument("--hot-set", required=True, help="npy int array [n_layer, H] of expert ids")
++    ap.add_argument("--arch", default=None)
++    ap.add_argument("--merge-gate-up", action="store_true",
++                    help="emit one gate_up tensor per branch, halving the expert matmul count")
++    a = ap.parse_args()
++
++    hot = np.load(a.hot_set)
++    n_layer_hot, H = hot.shape
++    print("hot set: %d layers x %d experts" % (n_layer_hot, H), flush=True)
++
++    readers = [GGUFReader(p) for p in a.src]
++    r = readers[0]
++    arch = a.arch or bytes(r.fields["general.architecture"].parts[-1]).decode()
++    n_expert = int(r.fields[arch + ".expert_count"].parts[-1][0])
++    n_used   = int(r.fields[arch + ".expert_used_count"].parts[-1][0])
++    n_cold   = n_expert - H
++    print("arch=%s n_expert=%d n_used=%d H=%d n_cold=%d" % (arch, n_expert, n_used, H, n_cold), flush=True)
++
++    w = GGUFWriter(a.dst, arch, endianess=GGUFEndian.LITTLE)
++
++    skip = {"general.architecture", "split.no", "split.count", "split.tensors.count"}
++    for key, field in r.fields.items():
++        if key in skip or not field.types:
++            continue
++        w.add_key_value(key, field.contents(), field.types[0], sub_type=field.types[-1] if len(field.types) > 1 else None)
++    w.add_uint32(arch + ".expert_hot_count", H)
++
++    def layer_of(name):
++        parts = name.split(".")
++        return int(parts[1]) if len(parts) > 2 and parts[0] == "blk" else None
++
++    all_tensors = [t for rd in readers for t in rd.tensors]
++    by_name = {str(t.name): t for t in all_tensors}
++    print("tensors: %d across %d file(s)" % (len(all_tensors), len(readers)), flush=True)
++
++    for t in all_tensors:
++        name = str(t.name)
++
++        if a.merge_gate_up and name.endswith("ffn_up_exps.weight"):
++            continue  # folded into the gate_up tensor below
++        il = layer_of(name)
++        raw = np.asarray(t.data)
++
++        merge = a.merge_gate_up and name.endswith("ffn_gate_exps.weight")
++        if merge:
++            up = by_name.get(name.replace("ffn_gate_exps", "ffn_up_exps"))
++            if up is None or up.tensor_type != t.tensor_type:
++                merge = False
++
++        if name.endswith("_exps.weight") and il is not None and il < n_layer_hot:
++            order = hot[il]
++            assert len(set(order.tolist())) == H, "hot set for layer %d has duplicates" % il
++            cold_ids = np.array(sorted(set(range(n_expert)) - set(order.tolist())), dtype=np.int64)
++            assert len(cold_ids) == n_cold
++
++            # raw is the byte layout with the expert as the outermost axis
++            assert raw.shape[0] == n_expert, (name, raw.shape)
++            base = name[:-len(".weight")]
++            if merge:
++                # gate rows first, then up rows, matching the merged layout the graph expects
++                raw = np.concatenate([raw, np.asarray(up.data)], axis=1)
++                base = base.replace("ffn_gate_exps", "ffn_gate_up_exps")
++
++            zeros = np.zeros((n_used,) + raw.shape[1:], dtype=raw.dtype)
++
++            hot_data  = np.concatenate([raw[order],    zeros], axis=0)
++            cold_data = np.concatenate([raw[cold_ids], zeros], axis=0)
++
++            w.add_tensor(base + "_hot.weight",  hot_data,  raw_dtype=t.tensor_type)
++            w.add_tensor(base + "_cold.weight", cold_data, raw_dtype=t.tensor_type)
++            print("  %-32s -> %s hot[%d] cold[%d]" % (name, base.split(".")[-1], H + n_used, n_cold + n_used), flush=True)
++            continue
++
++        if name.endswith("ffn_gate_inp.weight") and il is not None and il < n_layer_hot:
++            order = hot[il]
++            cold_ids = np.array(sorted(set(range(n_expert)) - set(order.tolist())), dtype=np.int64)
++            perm = np.concatenate([order, cold_ids])
++            assert raw.shape[0] == n_expert, (name, raw.shape)
++            w.add_tensor(name, raw[perm], raw_dtype=t.tensor_type)
++            continue
++
++        w.add_tensor(name, raw, raw_dtype=t.tensor_type)
++
++    w.write_header_to_file()
++    w.write_kv_data_to_file()
++    w.write_tensors_to_file(progress=True)
++    w.close()
++    print("written", a.dst, "%.2f GiB" % (os.path.getsize(a.dst)/1024**3), flush=True)
++
++
++if __name__ == "__main__":
++    main()
+diff --git a/src/llama-arch.cpp b/src/llama-arch.cpp
+index 1e856c57f..4094808ca 100644
+--- a/src/llama-arch.cpp
++++ b/src/llama-arch.cpp
+@@ -205,6 +205,7 @@ static const std::map<llm_kv, const char *> LLM_KV_NAMES = {
+     { LLM_KV_TENSOR_DATA_LAYOUT,                "%s.tensor_data_layout"                },
+     { LLM_KV_EXPERT_COUNT,                      "%s.expert_count"                      },
+     { LLM_KV_EXPERT_USED_COUNT,                 "%s.expert_used_count"                 },
++    { LLM_KV_EXPERT_HOT_COUNT,                  "%s.expert_hot_count"                  },
+     { LLM_KV_EXPERT_SHARED_COUNT,               "%s.expert_shared_count"               },
+     { LLM_KV_EXPERT_GROUP_COUNT,                "%s.expert_group_count"                },
+     { LLM_KV_EXPERT_GROUP_USED_COUNT,           "%s.expert_group_used_count"           },
+@@ -439,6 +440,14 @@ static const std::map<llm_tensor, const char *> LLM_TENSOR_NAMES = {
+     { LLM_TENSOR_FFN_GATE_UP_EXPS,                       "blk.%d.ffn_gate_up_exps" },
+     { LLM_TENSOR_FFN_DOWN_EXPS,                          "blk.%d.ffn_down_exps" },
+     { LLM_TENSOR_FFN_UP_EXPS,                            "blk.%d.ffn_up_exps" },
++    { LLM_TENSOR_FFN_GATE_UP_EXPS_HOT,                   "blk.%d.ffn_gate_up_exps_hot" },
++    { LLM_TENSOR_FFN_GATE_UP_EXPS_COLD,                  "blk.%d.ffn_gate_up_exps_cold" },
++    { LLM_TENSOR_FFN_GATE_EXPS_HOT,                      "blk.%d.ffn_gate_exps_hot" },
++    { LLM_TENSOR_FFN_DOWN_EXPS_HOT,                      "blk.%d.ffn_down_exps_hot" },
++    { LLM_TENSOR_FFN_UP_EXPS_HOT,                        "blk.%d.ffn_up_exps_hot" },
++    { LLM_TENSOR_FFN_GATE_EXPS_COLD,                     "blk.%d.ffn_gate_exps_cold" },
++    { LLM_TENSOR_FFN_DOWN_EXPS_COLD,                     "blk.%d.ffn_down_exps_cold" },
++    { LLM_TENSOR_FFN_UP_EXPS_COLD,                       "blk.%d.ffn_up_exps_cold" },
+     { LLM_TENSOR_ATTN_POST_NORM,                         "blk.%d.post_attention_norm" },
+     { LLM_TENSOR_ATTN_Q_NORM,                            "blk.%d.attn_q_norm" },
+     { LLM_TENSOR_ATTN_K_NORM,                            "blk.%d.attn_k_norm" },
+@@ -883,6 +892,14 @@ static const std::map<llm_tensor, llm_tensor_info> LLM_TENSOR_INFOS = {
+     {LLM_TENSOR_FFN_DOWN_EXPS,              {LLM_TENSOR_LAYER_REPEATING, GGML_OP_MUL_MAT_ID}},
+     {LLM_TENSOR_FFN_GATE_EXPS,              {LLM_TENSOR_LAYER_REPEATING, GGML_OP_MUL_MAT_ID}},
+     {LLM_TENSOR_FFN_UP_EXPS,                {LLM_TENSOR_LAYER_REPEATING, GGML_OP_MUL_MAT_ID}},
++    {LLM_TENSOR_FFN_GATE_UP_EXPS_HOT,       {LLM_TENSOR_LAYER_REPEATING, GGML_OP_MUL_MAT_ID}},
++    {LLM_TENSOR_FFN_GATE_UP_EXPS_COLD,      {LLM_TENSOR_LAYER_REPEATING, GGML_OP_MUL_MAT_ID}},
++    {LLM_TENSOR_FFN_DOWN_EXPS_HOT,          {LLM_TENSOR_LAYER_REPEATING, GGML_OP_MUL_MAT_ID}},
++    {LLM_TENSOR_FFN_GATE_EXPS_HOT,          {LLM_TENSOR_LAYER_REPEATING, GGML_OP_MUL_MAT_ID}},
++    {LLM_TENSOR_FFN_UP_EXPS_HOT,            {LLM_TENSOR_LAYER_REPEATING, GGML_OP_MUL_MAT_ID}},
++    {LLM_TENSOR_FFN_DOWN_EXPS_COLD,         {LLM_TENSOR_LAYER_REPEATING, GGML_OP_MUL_MAT_ID}},
++    {LLM_TENSOR_FFN_GATE_EXPS_COLD,         {LLM_TENSOR_LAYER_REPEATING, GGML_OP_MUL_MAT_ID}},
++    {LLM_TENSOR_FFN_UP_EXPS_COLD,           {LLM_TENSOR_LAYER_REPEATING, GGML_OP_MUL_MAT_ID}},
+     {LLM_TENSOR_FFN_GATE_UP_EXPS,           {LLM_TENSOR_LAYER_REPEATING, GGML_OP_MUL_MAT_ID}},
+     {LLM_TENSOR_FFN_DOWN_CHEXPS,            {LLM_TENSOR_LAYER_REPEATING, GGML_OP_MUL_MAT_ID}},
+     {LLM_TENSOR_FFN_GATE_CHEXPS,            {LLM_TENSOR_LAYER_REPEATING, GGML_OP_MUL_MAT_ID}},
+diff --git a/src/llama-arch.h b/src/llama-arch.h
+index 5acd8277b..1d85d0a3d 100644
+--- a/src/llama-arch.h
++++ b/src/llama-arch.h
+@@ -210,6 +210,7 @@ enum llm_kv {
+     LLM_KV_TENSOR_DATA_LAYOUT,
+     LLM_KV_EXPERT_COUNT,
+     LLM_KV_EXPERT_USED_COUNT,
++    LLM_KV_EXPERT_HOT_COUNT,
+     LLM_KV_EXPERT_SHARED_COUNT,
+     LLM_KV_EXPERT_GROUP_COUNT,
+     LLM_KV_EXPERT_GROUP_USED_COUNT,
+@@ -464,6 +465,14 @@ enum llm_tensor {
+     LLM_TENSOR_FFN_DOWN_EXPS, // merged experts
+     LLM_TENSOR_FFN_GATE_EXPS,
+     LLM_TENSOR_FFN_UP_EXPS,
++    LLM_TENSOR_FFN_GATE_UP_EXPS_HOT,
++    LLM_TENSOR_FFN_GATE_UP_EXPS_COLD,
++    LLM_TENSOR_FFN_DOWN_EXPS_HOT,  // routed experts split by residency
++    LLM_TENSOR_FFN_GATE_EXPS_HOT,
++    LLM_TENSOR_FFN_UP_EXPS_HOT,
++    LLM_TENSOR_FFN_DOWN_EXPS_COLD,
++    LLM_TENSOR_FFN_GATE_EXPS_COLD,
++    LLM_TENSOR_FFN_UP_EXPS_COLD,
+     LLM_TENSOR_FFN_GATE_UP_EXPS,
+     LLM_TENSOR_FFN_DOWN_SHEXP,
+     LLM_TENSOR_FFN_GATE_SHEXP,
+diff --git a/src/llama-graph.cpp b/src/llama-graph.cpp
+index 8fca8e1bc..79bb6f62e 100644
+--- a/src/llama-graph.cpp
++++ b/src/llama-graph.cpp
+@@ -1543,9 +1543,14 @@ ggml_tensor * llm_graph_context::build_lora_mm_id(
+           ggml_tensor * w,   // ggml_tensor * as
+           ggml_tensor * cur, // ggml_tensor * b
+           ggml_tensor * ids,
+-          ggml_tensor * w_s) const {
++          ggml_tensor * w_s,
++              int32_t   mask_from) const {
+     ggml_tensor * res = ggml_mul_mat_id(ctx0, w, cur, ids);
+ 
++    if (mask_from >= 0) {
++        ggml_mul_mat_id_set_mask_from(res, mask_from);
++    }
++
+     if (w_s) {
+         const int64_t n_expert = w_s->ne[0];
+         const int64_t n_tokens = cur->ne[2];
+@@ -1913,7 +1918,10 @@ ggml_tensor * llm_graph_context::build_moe_ffn(
+          ggml_tensor * up_exps_s,
+          ggml_tensor * gate_exps_s,
+          ggml_tensor * down_exps_s,
+-         ggml_tensor * selected_experts_in) const {
++         ggml_tensor * selected_experts_in,
++         ggml_tensor * up_exps_cold,
++         ggml_tensor * gate_exps_cold,
++         ggml_tensor * down_exps_cold) const {
+     return build_moe_ffn(
+         cur,
+         gate_inp,  /* gate_inp_b  */ nullptr,
+@@ -1934,7 +1942,10 @@ ggml_tensor * llm_graph_context::build_moe_ffn(
+         up_exps_s,
+         gate_exps_s,
+         down_exps_s,
+-        selected_experts_in
++        selected_experts_in,
++        up_exps_cold,
++        gate_exps_cold,
++        down_exps_cold
+     );
+ }
+ 
+@@ -1962,7 +1973,10 @@ ggml_tensor * llm_graph_context::build_moe_ffn(
+          ggml_tensor * up_exps_s,
+          ggml_tensor * gate_exps_s,
+          ggml_tensor * down_exps_s,
+-         ggml_tensor * selected_experts_in) const {
++         ggml_tensor * selected_experts_in,
++         ggml_tensor * up_exps_cold,
++         ggml_tensor * gate_exps_cold,
++         ggml_tensor * down_exps_cold) const {
+     const int64_t n_embd   = cur->ne[0];
+     const int64_t n_tokens = cur->ne[1];
+     const bool weight_before_ffn = arch == LLM_ARCH_LLAMA4; // for llama4, we apply the sigmoid-ed weights before the FFN
+@@ -2111,12 +2125,36 @@ ggml_tensor * llm_graph_context::build_moe_ffn(
+         cb(cur, "ffn_moe_weighted", il);
+     }
+ 
++    // routed experts split by residency: one branch per backend, summed before the weights
++    const bool    split_exps = up_exps_cold != nullptr;
++    const int64_t n_hot      = split_exps ? (int64_t) hparams.n_expert_hot : 0;
++    const int64_t n_cold     = split_exps ? n_expert - n_hot : 0;
++
++    ggml_tensor * ids_hot  = selected_experts;
++    ggml_tensor * ids_cold = nullptr;
++    if (split_exps) {
++        ids_hot  = ggml_moe_branch_ids(ctx0, selected_experts, 0,     n_hot,    n_hot);
++        ids_cold = ggml_moe_branch_ids(ctx0, selected_experts, n_hot, n_expert, n_cold);
++        cb(ids_hot,  "ffn_moe_ids_hot",  il);
++        cb(ids_cold, "ffn_moe_ids_cold", il);
++    }
++
++    auto mm_id_exps = [&](ggml_tensor * w_hot, ggml_tensor * w_cold, ggml_tensor * x, ggml_tensor * s) {
++        if (!split_exps) {
++            return build_lora_mm_id(w_hot, x, selected_experts, s);
++        }
++        ggml_tensor * o_hot  = build_lora_mm_id(w_hot,  x, ids_hot,  s, n_hot);
++        ggml_tensor * o_cold = build_lora_mm_id(w_cold, x, ids_cold, s, n_cold);
++        return ggml_add(ctx0, o_hot, o_cold);
++    };
++
+     ggml_tensor * up = nullptr;
+     ggml_tensor * experts = nullptr;
+ 
+     if (gate_up_exps) {
+         // merged gate_up path: one mul_mat_id, then split into gate and up views
+-        ggml_tensor * gate_up = build_lora_mm_id(gate_up_exps, cur, selected_experts, up_exps_s); // [n_ff*2, n_expert_used, n_tokens]
++        // when the experts are split, up_exps_cold carries the merged cold tensor
++        ggml_tensor * gate_up = mm_id_exps(gate_up_exps, up_exps_cold, cur, up_exps_s); // [n_ff*2, n_expert_used, n_tokens]
+         cb(gate_up, "ffn_moe_gate_up", il);
+ 
+         if (up_exps_s) {
+@@ -2135,7 +2173,7 @@ ggml_tensor * llm_graph_context::build_moe_ffn(
+         cb(up, "ffn_moe_up", il);
+     } else {
+         // separate gate and up path
+-        up = build_lora_mm_id(up_exps, cur, selected_experts, up_exps_s); // [n_ff, n_expert_used, n_tokens]
++        up = mm_id_exps(up_exps, up_exps_cold, cur, up_exps_s); // [n_ff, n_expert_used, n_tokens]
+         cb(up, "ffn_moe_up", il);
+ 
+         if (up_exps_s) {
+@@ -2148,7 +2186,7 @@ ggml_tensor * llm_graph_context::build_moe_ffn(
+         }
+ 
+         if (gate_exps) {
+-            cur = build_lora_mm_id(gate_exps, cur, selected_experts, gate_exps_s); // [n_ff, n_expert_used, n_tokens]
++            cur = mm_id_exps(gate_exps, gate_exps_cold, cur, gate_exps_s); // [n_ff, n_expert_used, n_tokens]
+             cb(cur, "ffn_moe_gate", il);
+         } else {
+             cur = up;
+@@ -2252,7 +2290,7 @@ ggml_tensor * llm_graph_context::build_moe_ffn(
+             GGML_ABORT("fatal error");
+     }
+ 
+-    experts = build_lora_mm_id(down_exps, cur, selected_experts, down_exps_s); // [n_embd, n_expert_used, n_tokens]
++    experts = mm_id_exps(down_exps, down_exps_cold, cur, down_exps_s); // [n_embd, n_expert_used, n_tokens]
+     cb(experts, "ffn_moe_down", il);
+ 
+     if (down_exps_s) {
+diff --git a/src/llama-graph.h b/src/llama-graph.h
+index b388e028c..e0b1e80ac 100644
+--- a/src/llama-graph.h
++++ b/src/llama-graph.h
+@@ -1059,7 +1059,8 @@ struct llm_graph_context {
+               ggml_tensor * w,   // ggml_tensor * as
+               ggml_tensor * cur, // ggml_tensor * b
+               ggml_tensor * ids,
+-              ggml_tensor * w_s = nullptr) const;
++              ggml_tensor * w_s = nullptr,
++                  int32_t   mask_from = -1) const;
+ 
+     ggml_tensor * build_norm(
+              ggml_tensor * cur,
+@@ -1115,7 +1116,10 @@ struct llm_graph_context {
+              ggml_tensor * up_exps_s = nullptr,
+              ggml_tensor * gate_exps_s = nullptr,
+              ggml_tensor * down_exps_s = nullptr,
+-             ggml_tensor * selected_experts_in = nullptr) const;
++             ggml_tensor * selected_experts_in = nullptr,
++             ggml_tensor * up_exps_cold = nullptr,
++             ggml_tensor * gate_exps_cold = nullptr,
++             ggml_tensor * down_exps_cold = nullptr) const;
+ 
+     ggml_tensor * build_moe_ffn(
+              ggml_tensor * cur,
+@@ -1141,7 +1145,10 @@ struct llm_graph_context {
+              ggml_tensor * up_exps_s = nullptr,
+              ggml_tensor * gate_exps_s = nullptr,
+              ggml_tensor * down_exps_s = nullptr,
+-             ggml_tensor * selected_experts_in = nullptr) const;
++             ggml_tensor * selected_experts_in = nullptr,
++             ggml_tensor * up_exps_cold = nullptr,
++             ggml_tensor * gate_exps_cold = nullptr,
++             ggml_tensor * down_exps_cold = nullptr) const;
+ 
+     //
+     // inputs
+diff --git a/src/llama-hparams.h b/src/llama-hparams.h
+index d829d034c..db852dcad 100644
+--- a/src/llama-hparams.h
++++ b/src/llama-hparams.h
+@@ -62,6 +62,8 @@ struct llama_hparams {
+     int32_t  router_layer = -1;
+     uint32_t n_expert = 0;
+     uint32_t n_expert_used = 0;
++    // number of routed experts kept resident; 0 means the experts are not split by residency
++    uint32_t n_expert_hot = 0;
+     uint32_t n_rel_attn_bkts = 0;
+ 
+     // TODO: this needs to be reworked
+diff --git a/src/llama-model.cpp b/src/llama-model.cpp
+index 063a343d5..ea6219dad 100644
+--- a/src/llama-model.cpp
++++ b/src/llama-model.cpp
+@@ -1219,6 +1219,7 @@ void llama_model_base::load_hparams(llama_model_loader & ml) {
+     GGML_ASSERT(hparams.n_layer_all > 0 && hparams.n_layer_all <= LLAMA_MAX_LAYERS);
+     ml.get_key(LLM_KV_EXPERT_COUNT,            hparams.n_expert,        false);
+     ml.get_key(LLM_KV_EXPERT_USED_COUNT,       hparams.n_expert_used,   false);
++    ml.get_key(LLM_KV_EXPERT_HOT_COUNT,        hparams.n_expert_hot,    false);
+     ml.get_key(LLM_KV_EXPERT_GROUP_COUNT,      hparams.n_expert_groups, false);
+     ml.get_key(LLM_KV_EXPERT_GROUP_USED_COUNT, hparams.n_group_used,    false);
+ 
+@@ -3120,6 +3121,24 @@ ggml_tensor * llama_model_base::create_tensor(const LLM_TN_IMPL & tn, const std:
+ }
+ 
+ void llama_model_base::create_tensor_gate_up_exps(llama_layer & layer, int bid, int64_t n_embd_, int64_t n_ff_, int64_t n_expert_, int flags) {
++    if (hparams.n_expert_hot > 0) {
++        const int64_t n_hot  = hparams.n_expert_hot + hparams.n_expert_used;
++        const int64_t n_cold = n_expert_ - hparams.n_expert_hot + hparams.n_expert_used;
++
++        // merged gate_up halves the number of expert matmuls, which matters most on the CPU branch
++        layer.ffn_gate_up_exps_hot = create_tensor(tn(LLM_TENSOR_FFN_GATE_UP_EXPS_HOT, "weight", bid), {n_embd_, n_ff_ * 2, n_hot}, TENSOR_NOT_REQUIRED);
++        if (layer.ffn_gate_up_exps_hot) {
++            layer.ffn_gate_up_exps_cold = create_tensor(tn(LLM_TENSOR_FFN_GATE_UP_EXPS_COLD, "weight", bid), {n_embd_, n_ff_ * 2, n_cold}, flags);
++            return;
++        }
++
++        layer.ffn_gate_exps_hot  = create_tensor(tn(LLM_TENSOR_FFN_GATE_EXPS_HOT,  "weight", bid), {n_embd_, n_ff_, n_hot},  flags);
++        layer.ffn_up_exps_hot    = create_tensor(tn(LLM_TENSOR_FFN_UP_EXPS_HOT,    "weight", bid), {n_embd_, n_ff_, n_hot},  flags);
++        layer.ffn_gate_exps_cold = create_tensor(tn(LLM_TENSOR_FFN_GATE_EXPS_COLD, "weight", bid), {n_embd_, n_ff_, n_cold}, flags);
++        layer.ffn_up_exps_cold   = create_tensor(tn(LLM_TENSOR_FFN_UP_EXPS_COLD,   "weight", bid), {n_embd_, n_ff_, n_cold}, flags);
++        return;
++    }
++
+     layer.ffn_gate_up_exps = create_tensor(tn(LLM_TENSOR_FFN_GATE_UP_EXPS, "weight", bid), {n_embd_, n_ff_ * 2, n_expert_}, TENSOR_NOT_REQUIRED);
+     if (layer.ffn_gate_up_exps == nullptr) {
+         layer.ffn_gate_exps = create_tensor(tn(LLM_TENSOR_FFN_GATE_EXPS, "weight", bid), {n_embd_, n_ff_, n_expert_}, flags);
+@@ -3127,6 +3146,19 @@ void llama_model_base::create_tensor_gate_up_exps(llama_layer & layer, int bid,
+     }
+ }
+ 
++void llama_model_base::create_tensor_down_exps(llama_layer & layer, int bid, int64_t n_ff_, int64_t n_embd_, int64_t n_expert_, int flags) {
++    if (hparams.n_expert_hot > 0) {
++        const int64_t n_hot  = hparams.n_expert_hot + hparams.n_expert_used;
++        const int64_t n_cold = n_expert_ - hparams.n_expert_hot + hparams.n_expert_used;
++
++        layer.ffn_down_exps_hot  = create_tensor(tn(LLM_TENSOR_FFN_DOWN_EXPS_HOT,  "weight", bid), {n_ff_, n_embd_, n_hot},  flags);
++        layer.ffn_down_exps_cold = create_tensor(tn(LLM_TENSOR_FFN_DOWN_EXPS_COLD, "weight", bid), {n_ff_, n_embd_, n_cold}, flags);
++        return;
++    }
++
++    layer.ffn_down_exps = create_tensor(tn(LLM_TENSOR_FFN_DOWN_EXPS, "weight", bid), {n_ff_, n_embd_, n_expert_}, flags);
++}
++
+ void llama_model_base::create_tensor_qkv(llama_layer & layer, int bid,
+         int64_t n_embd_, int64_t n_embd_q_, int64_t n_embd_k_, int64_t n_embd_v_,
+         int flags) {
+diff --git a/src/llama-model.h b/src/llama-model.h
+index f948fc57d..f5cdfe1d1 100644
+--- a/src/llama-model.h
++++ b/src/llama-model.h
+@@ -336,6 +336,15 @@ struct llama_layer {
+     struct ggml_tensor * ffn_gate_exps     = nullptr;
+     struct ggml_tensor * ffn_down_exps     = nullptr;
+     struct ggml_tensor * ffn_up_exps       = nullptr;
++
++    struct ggml_tensor * ffn_gate_up_exps_hot  = nullptr;
++    struct ggml_tensor * ffn_gate_up_exps_cold = nullptr;
++    struct ggml_tensor * ffn_gate_exps_hot  = nullptr;
++    struct ggml_tensor * ffn_down_exps_hot  = nullptr;
++    struct ggml_tensor * ffn_up_exps_hot    = nullptr;
++    struct ggml_tensor * ffn_gate_exps_cold = nullptr;
++    struct ggml_tensor * ffn_down_exps_cold = nullptr;
++    struct ggml_tensor * ffn_up_exps_cold   = nullptr;
+     struct ggml_tensor * ffn_gate_up_exps  = nullptr;
+     struct ggml_tensor * ffn_gate_inp_b    = nullptr;
+     struct ggml_tensor * ffn_gate_exps_b   = nullptr;
+@@ -796,6 +805,8 @@ struct llama_model_base : public llama_model {
+     // helper: try merged gate_up_exps first, fall back to separate gate and up
+     void create_tensor_gate_up_exps(llama_layer & layer, int bid, int64_t n_embd_,
+                 int64_t n_ff_, int64_t n_expert_, int flags);
++    void create_tensor_down_exps(llama_layer & layer, int bid, int64_t n_ff_,
++            int64_t n_embd_, int64_t n_expert_, int flags);
+ 
+     // helper: try to load merged qkv first, fall back to separate q, k, v
+     void create_tensor_qkv(llama_layer & layer, int bid,
+diff --git a/src/models/qwen35moe.cpp b/src/models/qwen35moe.cpp
+index 38f2a5798..33bbcc431 100644
+--- a/src/models/qwen35moe.cpp
++++ b/src/models/qwen35moe.cpp
+@@ -97,7 +97,7 @@ void llama_model_qwen35moe::load_arch_tensors(llama_model_loader & ml) {
+ 
+         // Routed experts
+         layer.ffn_gate_inp  = create_tensor(tn(LLM_TENSOR_FFN_GATE_INP,  "weight", il), { n_embd, n_expert }, flags);
+-        layer.ffn_down_exps = create_tensor(tn(LLM_TENSOR_FFN_DOWN_EXPS, "weight", il), { n_ff_exp, n_embd, n_expert }, flags);
++        create_tensor_down_exps(layer, il, n_ff_exp, n_embd, n_expert, flags);
+         create_tensor_gate_up_exps(layer, il, n_embd, n_ff_exp, n_expert, flags);
+ 
+         // Shared experts
+@@ -124,7 +124,7 @@ void llama_model_qwen35moe::load_arch_tensors(llama_model_loader & ml) {
+ 
+         // Routed experts
+         layer.ffn_gate_inp  = create_tensor(tn(LLM_TENSOR_FFN_GATE_INP,  "weight", il), { n_embd, n_expert }, mtp_flags);
+-        layer.ffn_down_exps = create_tensor(tn(LLM_TENSOR_FFN_DOWN_EXPS, "weight", il), { n_ff_exp, n_embd, n_expert }, mtp_flags);
++        create_tensor_down_exps(layer, il, n_ff_exp, n_embd, n_expert, mtp_flags);
+         create_tensor_gate_up_exps(layer, il, n_embd, n_ff_exp, n_expert, mtp_flags);
+ 
+         // Shared experts
+@@ -501,18 +501,22 @@ ggml_tensor * llama_model_qwen35moe::graph::build_layer_ffn(ggml_tensor * cur, c
+     ggml_tensor * moe_out =
+         build_moe_ffn(cur,
+             model.layers[il].ffn_gate_inp,
+-            model.layers[il].ffn_up_exps,
+-            model.layers[il].ffn_gate_exps,
+-            model.layers[il].ffn_down_exps,
++            model.layers[il].ffn_up_exps_hot   ? model.layers[il].ffn_up_exps_hot   : model.layers[il].ffn_up_exps,
++            model.layers[il].ffn_gate_exps_hot ? model.layers[il].ffn_gate_exps_hot : model.layers[il].ffn_gate_exps,
++            model.layers[il].ffn_down_exps_hot ? model.layers[il].ffn_down_exps_hot : model.layers[il].ffn_down_exps,
+             nullptr,
+             n_expert, n_expert_used,
+             LLM_FFN_SILU, true,
+             hparams.expert_weights_scale,
+             LLAMA_EXPERT_GATING_FUNC_TYPE_SOFTMAX, il,
+-            nullptr, model.layers[il].ffn_gate_up_exps,
++            nullptr, model.layers[il].ffn_gate_up_exps_hot ? model.layers[il].ffn_gate_up_exps_hot : model.layers[il].ffn_gate_up_exps,
+             model.layers[il].ffn_up_exps_s,
+             model.layers[il].ffn_gate_exps_s,
+-            model.layers[il].ffn_down_exps_s);
++            model.layers[il].ffn_down_exps_s,
++            nullptr,
++            model.layers[il].ffn_gate_up_exps_cold ? model.layers[il].ffn_gate_up_exps_cold : model.layers[il].ffn_up_exps_cold,
++            model.layers[il].ffn_gate_exps_cold,
++            model.layers[il].ffn_down_exps_cold);
+     cb(moe_out, "ffn_moe_out", il);
+ 
+     // Add shared experts if present - following Qwen3Next reference implementation
+@@ -679,18 +683,22 @@ llama_model_qwen35moe::graph_mtp::graph_mtp(const llama_model & model, const llm
+     ggml_tensor * moe_out =
+         build_moe_ffn(cur,
+             layer.ffn_gate_inp,
+-            layer.ffn_up_exps,
+-            layer.ffn_gate_exps,
+-            layer.ffn_down_exps,
++            layer.ffn_up_exps_hot   ? layer.ffn_up_exps_hot   : layer.ffn_up_exps,
++            layer.ffn_gate_exps_hot ? layer.ffn_gate_exps_hot : layer.ffn_gate_exps,
++            layer.ffn_down_exps_hot ? layer.ffn_down_exps_hot : layer.ffn_down_exps,
+             nullptr,
+             n_expert, n_expert_used,
+             LLM_FFN_SILU, true,
+             hparams.expert_weights_scale,
+             LLAMA_EXPERT_GATING_FUNC_TYPE_SOFTMAX, il,
+-            nullptr, layer.ffn_gate_up_exps,
++            nullptr, layer.ffn_gate_up_exps_hot ? layer.ffn_gate_up_exps_hot : layer.ffn_gate_up_exps,
+             layer.ffn_up_exps_s,
+             layer.ffn_gate_exps_s,
+-            layer.ffn_down_exps_s);
++            layer.ffn_down_exps_s,
++            nullptr,
++            layer.ffn_gate_up_exps_cold ? layer.ffn_gate_up_exps_cold : layer.ffn_up_exps_cold,
++            layer.ffn_gate_exps_cold,
++            layer.ffn_down_exps_cold);
+     cb(moe_out, "mtp_ffn_moe_out", il);
+ 
+     if (layer.ffn_up_shexp != nullptr) {
+diff --git a/src/models/qwen4exp.cpp b/src/models/qwen4exp.cpp
+index bf404771a..75b343863 100644
+--- a/src/models/qwen4exp.cpp
++++ b/src/models/qwen4exp.cpp
+@@ -177,8 +177,8 @@ void llama_model_qwen4exp::load_arch_tensors(llama_model_loader & ml) {
+             layer.ple_conv1d     = create_tensor(tn(LLM_TENSOR_PLE_CONV1D,     "weight", il), { hparams.ple_conv_kernel, hc_dim }, tf);
+         }
+ 
+-        layer.ffn_gate_inp  = create_tensor(tn(LLM_TENSOR_FFN_GATE_INP,  "weight", il), { n_embd, n_expert }, tf);
+-        layer.ffn_down_exps = create_tensor(tn(LLM_TENSOR_FFN_DOWN_EXPS, "weight", il), { n_ff_exp, n_embd, n_expert }, tf);
++layer.ffn_gate_inp  = create_tensor(tn(LLM_TENSOR_FFN_GATE_INP,  "weight", il), { n_embd, n_expert }, tf);
++        create_tensor_down_exps(layer, il, n_ff_exp, n_embd, n_expert, tf);
+         create_tensor_gate_up_exps(layer, il, n_embd, n_ff_exp, n_expert, tf);
+ 
+         layer.ffn_gate_inp_shexp = create_tensor(tn(LLM_TENSOR_FFN_GATE_INP_SHEXP, "weight", il), { n_embd }, tf);
+@@ -1470,18 +1470,22 @@ ggml_tensor * llama_model_qwen4exp::graph::build_layer_ffn(ggml_tensor * cur, co
+     ggml_tensor * moe_out =
+         build_moe_ffn(cur,
+             model.layers[il].ffn_gate_inp,
+-            model.layers[il].ffn_up_exps,
+-            model.layers[il].ffn_gate_exps,
+-            model.layers[il].ffn_down_exps,
++            model.layers[il].ffn_up_exps_hot   ? model.layers[il].ffn_up_exps_hot   : model.layers[il].ffn_up_exps,
++            model.layers[il].ffn_gate_exps_hot ? model.layers[il].ffn_gate_exps_hot : model.layers[il].ffn_gate_exps,
++            model.layers[il].ffn_down_exps_hot ? model.layers[il].ffn_down_exps_hot : model.layers[il].ffn_down_exps,
+             nullptr,
+             n_expert, n_expert_used,
+             LLM_FFN_SILU, true,
+             hparams.expert_weights_scale,
+             LLAMA_EXPERT_GATING_FUNC_TYPE_SOFTMAX, il,
+-            nullptr, model.layers[il].ffn_gate_up_exps,
++            nullptr, model.layers[il].ffn_gate_up_exps_hot ? model.layers[il].ffn_gate_up_exps_hot : model.layers[il].ffn_gate_up_exps,
+             model.layers[il].ffn_up_exps_s,
+             model.layers[il].ffn_gate_exps_s,
+-            model.layers[il].ffn_down_exps_s);
++            model.layers[il].ffn_down_exps_s,
++            nullptr,
++            model.layers[il].ffn_gate_up_exps_cold ? model.layers[il].ffn_gate_up_exps_cold : model.layers[il].ffn_up_exps_cold,
++            model.layers[il].ffn_gate_exps_cold,
++            model.layers[il].ffn_down_exps_cold);
+     cb(moe_out, "ffn_moe_out", il);
+ 
+     // shared experts, as in the Qwen3Next reference
+diff --git a/tests/test-backend-ops.cpp b/tests/test-backend-ops.cpp
+index 53e93a144..00c7772d8 100644
+--- a/tests/test-backend-ops.cpp
++++ b/tests/test-backend-ops.cpp
+@@ -4651,23 +4651,43 @@ struct test_mul_mat_hadamard : public test_mul_mat {
+     }
+ };
+ 
+-static void init_mul_mat_id_tensors(ggml_context * ctx, int n_mats) {
++// mask_from < 0 is the plain case. otherwise the experts from mask_from on are zeroed mask slots,
++// and every second id points at one of them, using a distinct slot per rank.
++static void init_mul_mat_id_tensors(ggml_context * ctx, int n_mats, int n_used = 0, int mask_from = -1) {
+     std::random_device rd;
+     std::default_random_engine rng(rd());
+     for (ggml_tensor * t = ggml_get_first_tensor(ctx); t != NULL; t = ggml_get_next_tensor(ctx, t)) {
+         if (t->type == GGML_TYPE_I32) {
+             if (ggml_is_view_op(t->op)) { continue; }
+             // ids
++            std::vector<int32_t> perm(mask_from < 0 ? 0 : mask_from);
++            for (size_t i = 0; i < perm.size(); i++) {
++                perm[i] = i;
++            }
+             for (int64_t r = 0; r < ggml_nrows(t); r++) {
+                 std::vector<int32_t> data(t->ne[0]);
+-                for (int i = 0; i < t->ne[0]; i++) {
+-                    data[i] = i % n_mats;
++                if (mask_from < 0) {
++                    for (int i = 0; i < t->ne[0]; i++) {
++                        data[i] = i % n_mats;
++                    }
++                    std::shuffle(data.begin(), data.end(), rng);
++                } else {
++                    // a token may not use the same expert twice, so the real experts come from a
++                    // permutation and every second rank takes the mask slot that belongs to it
++                    std::shuffle(perm.begin(), perm.end(), rng);
++                    for (int i = 0; i < t->ne[0]; i++) {
++                        data[i] = i < n_used && i % 2 == 1 ? mask_from + i : perm[i % mask_from];
++                    }
+                 }
+-                std::shuffle(data.begin(), data.end(), rng);
+                 ggml_backend_tensor_set(t, data.data(), r * t->nb[1], t->ne[0] * sizeof(int32_t));
+             }
+         } else {
+             init_tensor_uniform(t);
++            if (mask_from >= 0 && t->ne[2] == n_mats) {
++                // zero the mask slots of the expert tensor; for these types zero bytes read back as zero
++                std::vector<uint8_t> zeros((n_mats - mask_from) * t->nb[2], 0);
++                ggml_backend_tensor_set(t, zeros.data(), mask_from * t->nb[2], zeros.size());
++            }
+         }
+     }
+ }
+@@ -4682,9 +4702,10 @@ struct test_mul_mat_id : public test_case {
+     const int64_t m;
+     const int64_t n;
+     const int64_t k;
++    const int mask_from;
+ 
+     std::string vars() override {
+-        return VARS_TO_STR8(type_a, type_b, n_mats, n_used, b, m, n, k);
++        return VARS_TO_STR9(type_a, type_b, n_mats, n_used, b, m, n, k, mask_from);
+     }
+ 
+     double max_nmse_err() override {
+@@ -4706,10 +4727,11 @@ struct test_mul_mat_id : public test_case {
+ 
+     test_mul_mat_id(ggml_type type_a = GGML_TYPE_F32, ggml_type type_b = GGML_TYPE_F32,
+             int n_mats = 8, int n_used = 2, bool b = false,
+-            int64_t m = 32, int64_t n = 32, int64_t k = 32)
++            int64_t m = 32, int64_t n = 32, int64_t k = 32, int mask_from = -1)
+         : type_a(type_a), type_b(type_b), n_mats(n_mats), n_used(n_used), b(b),
+-            m(m), n(n), k(k) {
++            m(m), n(n), k(k), mask_from(mask_from) {
+             GGML_ASSERT(n_used <= n_mats);
++            GGML_ASSERT(mask_from < 0 || (mask_from > 0 && n_mats - mask_from >= n_used));
+         }
+ 
+     ggml_tensor * build_graph(ggml_context * ctx) override {
+@@ -4728,13 +4750,16 @@ struct test_mul_mat_id : public test_case {
+         ggml_set_name(b, "b");
+ 
+         ggml_tensor * out = ggml_mul_mat_id(ctx, as, b, ids);
++        if (mask_from >= 0) {
++            ggml_mul_mat_id_set_mask_from(out, mask_from);
++        }
+         ggml_set_name(out, "out");
+ 
+         return out;
+     }
+ 
+     void initialize_tensors(ggml_context * ctx) override {
+-        init_mul_mat_id_tensors(ctx, n_mats);
++        init_mul_mat_id_tensors(ctx, n_mats, n_used, mask_from);
+     }
+ };
+ 
+@@ -6051,6 +6076,54 @@ struct test_concat : public test_case {
+ };
+ 
+ // GGML_OP_ARGSORT
++// GGML_OP_MOE_BRANCH_IDS
++struct test_moe_branch_ids : public test_case {
++    const int64_t n_expert_used;
++    const int64_t n_tokens;
++    const int32_t n_expert;
++    const int32_t lo;
++    const int32_t hi;
++    const int32_t mask_base;
++
++    std::string vars() override {
++        return VARS_TO_STR6(n_expert_used, n_tokens, n_expert, lo, hi, mask_base);
++    }
++
++    test_moe_branch_ids(int64_t n_expert_used = 4, int64_t n_tokens = 7, int32_t n_expert = 16,
++            int32_t lo = 0, int32_t hi = 8, int32_t mask_base = 8)
++        : n_expert_used(n_expert_used), n_tokens(n_tokens), n_expert(n_expert),
++          lo(lo), hi(hi), mask_base(mask_base) {}
++
++    ggml_tensor * build_graph(ggml_context * ctx) override {
++        ggml_tensor * ids = ggml_new_tensor_2d(ctx, GGML_TYPE_I32, n_expert_used, n_tokens);
++        ggml_set_name(ids, "ids");
++
++        ggml_tensor * out = ggml_moe_branch_ids(ctx, ids, lo, hi, mask_base);
++        ggml_set_name(out, "out");
++
++        return out;
++    }
++
++    void initialize_tensors(ggml_context * ctx) override {
++        std::random_device rd;
++        std::default_random_engine rng(rd());
++        for (ggml_tensor * t = ggml_get_first_tensor(ctx); t != NULL; t = ggml_get_next_tensor(ctx, t)) {
++            if (t->op != GGML_OP_NONE || t->type != GGML_TYPE_I32) { continue; }
++            std::vector<int32_t> pool(n_expert);
++            for (int32_t i = 0; i < n_expert; i++) {
++                pool[i] = i;
++            }
++            // a token never uses the same expert twice, so each row is a sample without replacement
++            std::vector<int32_t> data(ggml_nelements(t));
++            for (int64_t r = 0; r < ggml_nrows(t); r++) {
++                std::shuffle(pool.begin(), pool.end(), rng);
++                std::copy(pool.begin(), pool.begin() + t->ne[0], data.begin() + r*t->ne[0]);
++            }
++            ggml_backend_tensor_set(t, data.data(), 0, ggml_nbytes(t));
++        }
++    }
++};
++
+ struct test_argsort : public test_case {
+     const ggml_type type;
+     const std::array<int64_t, 4> ne;
+@@ -9145,6 +9218,12 @@ static std::vector<std::unique_ptr<test_case>> make_test_cases_eval() {
+     test_cases.emplace_back(new test_mul_mat_hadamard(GGML_TYPE_F32, GGML_TYPE_F32, 32, 1, 32)); // too small (N<64)
+     test_cases.emplace_back(new test_mul_mat_hadamard(GGML_TYPE_F32, GGML_TYPE_F32, 1024, 1, 1024)); // too big (N>512)
+ 
++    test_cases.emplace_back(new test_moe_branch_ids(4, 7,  16, 0, 8,  8));   // hot branch
++    test_cases.emplace_back(new test_moe_branch_ids(4, 7,  16, 8, 16, 8));   // cold branch
++    test_cases.emplace_back(new test_moe_branch_ids(10, 1, 512, 0, 165, 165));
++    test_cases.emplace_back(new test_moe_branch_ids(10, 256, 512, 165, 512, 347));
++
++
+ #if 0
+     // > 4GB A matrix. Too slow to be enabled by default.
+     test_cases.emplace_back(new test_mul_mat(GGML_TYPE_F16, GGML_TYPE_F16,  900000,  3, 2592, {1, 1}, {1, 1}));
+@@ -9370,6 +9449,13 @@ static std::vector<std::unique_ptr<test_case>> make_test_cases_eval() {
+ 
+     for (ggml_type type_a : all_types) {
+         test_cases.emplace_back(new test_mul_mat_id(type_a, GGML_TYPE_F32, 4, 2, false, 64, 16, 3*ggml_blck_size(type_a)));
++        // mask slots, see ggml_mul_mat_id_set_mask_from. limited to types whose zero bytes read back as zero
++        if (type_a == GGML_TYPE_F32 || type_a == GGML_TYPE_F16 || type_a == GGML_TYPE_BF16 ||
++            type_a == GGML_TYPE_Q4_0 || type_a == GGML_TYPE_Q8_0 || type_a == GGML_TYPE_Q4_K) {
++            test_cases.emplace_back(new test_mul_mat_id(type_a, GGML_TYPE_F32, 8, 4, false, 64,  1, 3*ggml_blck_size(type_a), 4));
++            test_cases.emplace_back(new test_mul_mat_id(type_a, GGML_TYPE_F32, 8, 4, false, 64, 16, 3*ggml_blck_size(type_a), 4));
++            test_cases.emplace_back(new test_mul_mat_id(type_a, GGML_TYPE_F32, 8, 4, false, 64, 64, 3*ggml_blck_size(type_a), 4));
++        }
+     }
+ 
+     for (ggml_type type_a : base_types) {
+-- 
+2.40.0.windows.1
+

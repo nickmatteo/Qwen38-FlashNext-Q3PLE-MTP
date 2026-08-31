@@ -1,0 +1,456 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/q38-public-benchmark-v1.schema.json",
+  "title": "Qwen3.8 public benchmark result row",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "schema_version",
+    "run_id",
+    "timestamp_utc",
+    "suite_id",
+    "stage_id",
+    "mode",
+    "evidence_class",
+    "status",
+    "model",
+    "runtime",
+    "fixture",
+    "settings",
+    "metrics",
+    "resources",
+    "correctness",
+    "artifacts",
+    "contamination"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "q38-public-benchmark-v1"
+    },
+    "run_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "timestamp_utc": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "suite_id": {
+      "const": "PUBLIC-BENCH-001"
+    },
+    "stage_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "mode": {
+      "enum": [
+        "target",
+        "mtp",
+        "llama_bench",
+        "perplexity",
+        "quality",
+        "integrity"
+      ]
+    },
+    "evidence_class": {
+      "enum": [
+        "MEASURED",
+        "PROXY",
+        "ANALYTICAL",
+        "EXTERNAL"
+      ]
+    },
+    "status": {
+      "enum": [
+        "VALID",
+        "VOID",
+        "FAILED",
+        "BLOCKED"
+      ]
+    },
+    "model": {
+      "type": "object",
+      "required": [
+        "repo",
+        "revision",
+        "quant_recipe"
+      ],
+      "properties": {
+        "repo": {
+          "type": "string"
+        },
+        "revision": {
+          "type": "string"
+        },
+        "quant_recipe": {
+          "type": "string"
+        },
+        "artifact_sha256": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[0-9a-fA-F]{64}$"
+          }
+        },
+        "bytes": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "runtime": {
+      "type": "object",
+      "required": [
+        "repo",
+        "commit",
+        "executable_sha256"
+      ],
+      "properties": {
+        "repo": {
+          "type": "string"
+        },
+        "commit": {
+          "type": "string"
+        },
+        "executable_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-fA-F]{64}$"
+        },
+        "build_flags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "backend": {
+          "type": "string"
+        },
+        "driver_cuda": {
+          "type": "string"
+        }
+      }
+    },
+    "fixture": {
+      "type": "object",
+      "required": [
+        "id",
+        "prompt_sha256"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "source_path": {
+          "type": "string"
+        },
+        "source_sha256": {
+          "type": "string"
+        },
+        "prompt_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-fA-F]{64}$"
+        },
+        "prompt_tokens_target": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "actual_prompt_tokens": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "needle_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "settings": {
+      "type": "object"
+    },
+    "metrics": {
+      "type": "object",
+      "properties": {
+        "startup_s": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "prefill_tps": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "prompt_ms": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "ttft_ms": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "decode_tps": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "wall_s": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "completion_tokens": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "drafted_tokens": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "accepted_tokens": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "acceptance": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 1
+        }
+      }
+    },
+    "resources": {
+      "type": "object",
+      "properties": {
+        "ram_available_min_bytes": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "rss_peak_bytes": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "vram_free_min_mib": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "pagefile_growth_bytes": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "cold_warm": {
+          "enum": [
+            "cold",
+            "warm",
+            "mixed",
+            "not_applicable"
+          ]
+        }
+      }
+    },
+    "correctness": {
+      "type": "object",
+      "required": [
+        "output_sha256",
+        "token_ids_sha256"
+      ],
+      "properties": {
+        "finish_reason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "output_sha256": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "token_ids_sha256": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "target_output_sha256": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "target_token_ids_sha256": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "exact_text": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "exact_token_ids": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "needle_pass": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "tool_json_pass": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        }
+      }
+    },
+    "artifacts": {
+      "type": "object",
+      "properties": {
+        "stdout": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "stderr": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "telemetry": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "evidence_manifest": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "screenshots": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "stage",
+              "path",
+              "sha256",
+              "captured_utc"
+            ],
+            "properties": {
+              "stage": {
+                "enum": [
+                  "preflight",
+                  "loaded",
+                  "steady",
+                  "result",
+                  "postflight",
+                  "failure"
+                ]
+              },
+              "path": {
+                "type": "string",
+                "minLength": 1
+              },
+              "sha256": {
+                "type": "string",
+                "pattern": "^[0-9a-fA-F]{64}$"
+              },
+              "captured_utc": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "public_redaction": {
+                "type": "boolean"
+              }
+            }
+          }
+        }
+      }
+    },
+    "contamination": {
+      "type": "object",
+      "required": [
+        "void_reasons"
+      ],
+      "properties": {
+        "processes": {
+          "type": "array"
+        },
+        "port_free_after": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "void_reasons": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "notes": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  }
+}

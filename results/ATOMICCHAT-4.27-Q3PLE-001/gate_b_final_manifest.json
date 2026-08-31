@@ -1,0 +1,413 @@
+{
+  "current_final_inventory": {
+    "aggregate_bytes": 78525318176,
+    "file_count": 33,
+    "filename_sizes": [
+      {
+        "bytes": 693380288,
+        "filename": "Qwen3.8-Flash-Next-AD-4.27bpw-Q3_PLE-M64-00001-of-00033.gguf"
+      },
+      {
+        "bytes": 22400107712,
+        "filename": "Qwen3.8-Flash-Next-AD-4.27bpw-Q3_PLE-M64-00002-of-00033.gguf"
+      },
+      {
+        "bytes": 1999024832,
+        "filename": "Qwen3.8-Flash-Next-AD-4.27bpw-Q3_PLE-M64-00003-of-00033.gguf"
+      },
+      {
+        "bytes": 1787651072,
+        "filename": "Qwen3.8-Flash-Next-AD-4.27bpw-Q3_PLE-M64-00004-of-00033.gguf"
+      },
+      {
+        "bytes": 1654830080,
+        "filename": "Qwen3.8-Flash-Next-AD-4.27bpw-Q3_PLE-M64-00005-of-00033.gguf"
+      },
+      {
+        "bytes": 1993256608,
+        "filename": "Qwen3.8-Flash-Next-AD-4.27bpw-Q3_PLE-M64-00006-of-00033.gguf"
+      },
+      {
+        "bytes": 1725815808,
+        "filename": "Qwen3.8-Flash-Next-AD-4.27bpw-Q3_PLE-M64-00007-of-00033.gguf"
+      },
+      {
+        "bytes": 1830961056,
+        "filename": "Qwen3.8-Flash-Next-AD-4.27bpw-Q3_PLE-M64-00008-of-00033.gguf"
+      },
+      {
+        "bytes": 1915366048,
+        "filename": "Qwen3.8-Flash-Next-AD-4.27bpw-Q3_PLE-M64-00009-of-00033.gguf"
+      },
+      {
+        "bytes": 1711956000,
+        "filename": "Qwen3.8-Flash-Next-AD-4.27bpw-Q3_PLE-M64-00010-of-00033.gguf"
+      },
+      {
+        "bytes": 1844820928,
+        "filename": "Qwen3.8-Flash-Next-AD-4.27bpw-Q3_PLE-M64-00011-of-00033.gguf"
+      },
+      {
+        "bytes": 1923724224,
+        "filename": "Qwen3.8-Flash-Next-AD-4.27bpw-Q3_PLE-M64-00012-of-00033.gguf"
+      },
+      {
+        "bytes": 1703597888,
+        "filename": "Qwen3.8-Flash-Next-AD-4.27bpw-Q3_PLE-M64-00013-of-00033.gguf"
+      },
+      {
+        "bytes": 1844820928,
+        "filename": "Qwen3.8-Flash-Next-AD-4.27bpw-Q3_PLE-M64-00014-of-00033.gguf"
+      },
+      {
+        "bytes": 1909864352,
+        "filename": "Qwen3.8-Flash-Next-AD-4.27bpw-Q3_PLE-M64-00015-of-00033.gguf"
+      },
+      {
+        "bytes": 1717457728,
+        "filename": "Qwen3.8-Flash-Next-AD-4.27bpw-Q3_PLE-M64-00016-of-00033.gguf"
+      },
+      {
+        "bytes": 1853179072,
+        "filename": "Qwen3.8-Flash-Next-AD-4.27bpw-Q3_PLE-M64-00017-of-00033.gguf"
+      },
+      {
+        "bytes": 1901506240,
+        "filename": "Qwen3.8-Flash-Next-AD-4.27bpw-Q3_PLE-M64-00018-of-00033.gguf"
+      },
+      {
+        "bytes": 1725815872,
+        "filename": "Qwen3.8-Flash-Next-AD-4.27bpw-Q3_PLE-M64-00019-of-00033.gguf"
+      },
+      {
+        "bytes": 1830961088,
+        "filename": "Qwen3.8-Flash-Next-AD-4.27bpw-Q3_PLE-M64-00020-of-00033.gguf"
+      },
+      {
+        "bytes": 1915366080,
+        "filename": "Qwen3.8-Flash-Next-AD-4.27bpw-Q3_PLE-M64-00021-of-00033.gguf"
+      },
+      {
+        "bytes": 1711956000,
+        "filename": "Qwen3.8-Flash-Next-AD-4.27bpw-Q3_PLE-M64-00022-of-00033.gguf"
+      },
+      {
+        "bytes": 1844820928,
+        "filename": "Qwen3.8-Flash-Next-AD-4.27bpw-Q3_PLE-M64-00023-of-00033.gguf"
+      },
+      {
+        "bytes": 1923724224,
+        "filename": "Qwen3.8-Flash-Next-AD-4.27bpw-Q3_PLE-M64-00024-of-00033.gguf"
+      },
+      {
+        "bytes": 1703597888,
+        "filename": "Qwen3.8-Flash-Next-AD-4.27bpw-Q3_PLE-M64-00025-of-00033.gguf"
+      },
+      {
+        "bytes": 1844820928,
+        "filename": "Qwen3.8-Flash-Next-AD-4.27bpw-Q3_PLE-M64-00026-of-00033.gguf"
+      },
+      {
+        "bytes": 1909864352,
+        "filename": "Qwen3.8-Flash-Next-AD-4.27bpw-Q3_PLE-M64-00027-of-00033.gguf"
+      },
+      {
+        "bytes": 1646472000,
+        "filename": "Qwen3.8-Flash-Next-AD-4.27bpw-Q3_PLE-M64-00028-of-00033.gguf"
+      },
+      {
+        "bytes": 1725375264,
+        "filename": "Qwen3.8-Flash-Next-AD-4.27bpw-Q3_PLE-M64-00029-of-00033.gguf"
+      },
+      {
+        "bytes": 1738770080,
+        "filename": "Qwen3.8-Flash-Next-AD-4.27bpw-Q3_PLE-M64-00030-of-00033.gguf"
+      },
+      {
+        "bytes": 1646472000,
+        "filename": "Qwen3.8-Flash-Next-AD-4.27bpw-Q3_PLE-M64-00031-of-00033.gguf"
+      },
+      {
+        "bytes": 1725375264,
+        "filename": "Qwen3.8-Flash-Next-AD-4.27bpw-Q3_PLE-M64-00032-of-00033.gguf"
+      },
+      {
+        "bytes": 1220605344,
+        "filename": "Qwen3.8-Flash-Next-AD-4.27bpw-Q3_PLE-M64-00033-of-00033.gguf"
+      }
+    ],
+    "path": "Z:\\Qwen38-FlashNext-Cluster\\artifacts\\models\\AtomicChat\\Qwen3.8-Flash-Next-AD-4.27bpw-Q3_PLE-M64"
+  },
+  "derivative_manifest_identity": {
+    "basis": "pre-promotion derivative manifest plus same-Z-volume metadata-only promotion; files not reopened for writing",
+    "path": "results\\ATOMICCHAT-4.27-Q3PLE-001\\gate_b_derivative_manifest.json",
+    "payload_hash_rows": 33,
+    "payload_hashes_recomputed_post_promotion": false,
+    "sha256": "603cf896091ea2b2e188cd4802a469774ee036c7a7e6569c40d5f39e5251693b"
+  },
+  "evidence_class": "MEASURED_SMALL_FILE_MANIFEST",
+  "file_count": 43,
+  "files": [
+    {
+      "bytes": 7551,
+      "evidence_class": "MEASURED_SMALL_FILE_HASH",
+      "path": "artifacts\\q3-ple\\ATOMICCHAT-4.27-Q3PLE-001\\binary_manifest.json",
+      "sha256": "96041100ba61ef2174005549596468ea30743626a6592cba6e24647f64eb329f"
+    },
+    {
+      "bytes": 41302,
+      "evidence_class": "MEASURED_SMALL_FILE_HASH",
+      "path": "artifacts\\q3-ple\\ATOMICCHAT-4.27-Q3PLE-001\\llama-q3-ple-live.patch",
+      "sha256": "ab0fb4ec59d7ee22ef9c5f490a49cbd3e581e8f9ef7e28331a1f9743df2e61ab"
+    },
+    {
+      "bytes": 5355,
+      "evidence_class": "MEASURED_SMALL_FILE_HASH",
+      "path": "DECISION.md",
+      "sha256": "6d51b26334d4cb79f134f330fac7c8857d7ead31efa248d0f04e4441c946eee2"
+    },
+    {
+      "bytes": 7159,
+      "evidence_class": "MEASURED_SMALL_FILE_HASH",
+      "path": "docs\\plans\\ATOMICCHAT-4.27-Q3PLE-001.md",
+      "sha256": "5a07b44350647c7c8c535a11d125d24846171107b7c67ac806e898bf2179161a"
+    },
+    {
+      "bytes": 17915,
+      "evidence_class": "MEASURED_SMALL_FILE_HASH",
+      "path": "handoffs\\HANDOFF_CURRENT.md",
+      "sha256": "50b9459791d5a5b0b975270964a0ce243eac228542c37915d92487078ca6304e"
+    },
+    {
+      "bytes": 855,
+      "evidence_class": "MEASURED_SMALL_FILE_HASH",
+      "path": "logs\\ATOMICCHAT-4.27-Q3PLE-001\\gate_b\\closeout\\final_audit_false_negative.json",
+      "sha256": "03a20478481fc2cc77dfee20212347c58e0e91bd7dffbc7fb39cf582859e5673"
+    },
+    {
+      "bytes": 39,
+      "evidence_class": "MEASURED_SMALL_FILE_HASH",
+      "path": "logs\\ATOMICCHAT-4.27-Q3PLE-001\\gate_b\\closeout\\focused_tests.txt",
+      "sha256": "8a3fab0b7ba0e48d81a391d23c31bb795b4319bec9f1ad6a85fbed26b93be415"
+    },
+    {
+      "bytes": 10847,
+      "evidence_class": "MEASURED_SMALL_FILE_HASH",
+      "path": "logs\\ATOMICCHAT-4.27-Q3PLE-001\\gate_b\\closeout\\reconciliation.json",
+      "sha256": "eb8dc5024d6f5a42ec0f0e6cb4b3025e98f2b8d474dbf4c75fd08bb0ec04a825"
+    },
+    {
+      "bytes": 1087,
+      "evidence_class": "MEASURED_SMALL_FILE_HASH",
+      "path": "logs\\ATOMICCHAT-4.27-Q3PLE-001\\gate_b\\closeout\\validator_final_stdout.txt",
+      "sha256": "019fca37c8e41ad2acc1d5b8b44625a6e44b571dff682b5a9dc4f2ed11c021d6"
+    },
+    {
+      "bytes": 156645,
+      "evidence_class": "MEASURED_SMALL_FILE_HASH",
+      "path": "logs\\ATOMICCHAT-4.27-Q3PLE-001\\gate_b\\conversion.stderr.txt",
+      "sha256": "a9656fc41b6b35fc113b000bef8020a112aef7823be30223d5202d06f85ac4f8"
+    },
+    {
+      "bytes": 94,
+      "evidence_class": "MEASURED_SMALL_FILE_HASH",
+      "path": "logs\\ATOMICCHAT-4.27-Q3PLE-001\\gate_b\\conversion.stdout.txt",
+      "sha256": "3e03e70cb1bc66c7bf09996a95ae9a737d62b40f5566c81d0cc5a10af35693bf"
+    },
+    {
+      "bytes": 10598,
+      "evidence_class": "MEASURED_SMALL_FILE_HASH",
+      "path": "logs\\ATOMICCHAT-4.27-Q3PLE-001\\gate_b\\conversion_telemetry.jsonl",
+      "sha256": "9ba447fab8d504cca8c6213dc9bd55df1f2fb9f75f2ca77bb3c7c3fc48c84cad"
+    },
+    {
+      "bytes": 5354,
+      "evidence_class": "MEASURED_SMALL_FILE_HASH",
+      "path": "logs\\ATOMICCHAT-4.27-Q3PLE-001\\gate_b\\derivative_hashes.txt",
+      "sha256": "9eaeb44adeb382de44c2ab6a1052938fb7984b364a1fa2b3c4667d7d2ef92ca9"
+    },
+    {
+      "bytes": 313972,
+      "evidence_class": "MEASURED_SMALL_FILE_HASH",
+      "path": "logs\\ATOMICCHAT-4.27-Q3PLE-001\\gate_b\\dry_run.txt",
+      "sha256": "e97be54279fe26466ebadcf82cf4b16d2ed997f485a002cedafbe25c2f628285"
+    },
+    {
+      "bytes": 5662,
+      "evidence_class": "MEASURED_SMALL_FILE_HASH",
+      "path": "logs\\ATOMICCHAT-4.27-Q3PLE-001\\gate_b\\source_hash_preflight.txt",
+      "sha256": "6b64427d3329f9888429aea66fd588c7f27bbaf7c930d887fa97d0b2256b63d7"
+    },
+    {
+      "bytes": 128,
+      "evidence_class": "MEASURED_SMALL_FILE_HASH",
+      "path": "logs\\ATOMICCHAT-4.27-Q3PLE-001\\gate_b\\source_structure_preflight.txt",
+      "sha256": "1956dc61d35058ddd153819bc40dd5fb2747557e2cdd44600e294be1e4ea7b75"
+    },
+    {
+      "bytes": 1580,
+      "evidence_class": "MEASURED_SMALL_FILE_HASH",
+      "path": "logs\\ATOMICCHAT-4.27-Q3PLE-001\\gate_b\\structural_validation.txt",
+      "sha256": "97a667e821ad09d464692b534b4714635e6eb84cdbf5bb24ac602e9865d30d9e"
+    },
+    {
+      "bytes": 4060,
+      "evidence_class": "MEASURED_SMALL_FILE_HASH",
+      "path": "logs\\ATOMICCHAT-4.27-Q3PLE-001\\gate_b\\tensor_equivalence.txt",
+      "sha256": "a89786870c7c30c38e8ff2f50d47b3135276127826d8f2dbc3231fa2b7f06bfb"
+    },
+    {
+      "bytes": 33431,
+      "evidence_class": "MEASURED_SMALL_FILE_HASH",
+      "path": "results\\ATOMICCHAT-4.27-ACQUIRE-001\\source_payload_manifest.json",
+      "sha256": "ff3a5e18858d566acd57ca9855888fdc96ed378ba11a74c2a3830478bf27f6fa"
+    },
+    {
+      "bytes": 10849,
+      "evidence_class": "MEASURED_SMALL_FILE_HASH",
+      "path": "results\\ATOMICCHAT-4.27-Q3PLE-001\\gate_b_closeout.json",
+      "sha256": "a1f4bd3cb97486b8d7890f7fab96fd754239c2f88b2f131c118710842e11d49c"
+    },
+    {
+      "bytes": 1538,
+      "evidence_class": "MEASURED_SMALL_FILE_HASH",
+      "path": "results\\ATOMICCHAT-4.27-Q3PLE-001\\gate_b_conversion_command.json",
+      "sha256": "c306afa31acaa4141efa41bf1d15c9259da0a988050d4663eb790d67f486f786"
+    },
+    {
+      "bytes": 11322,
+      "evidence_class": "MEASURED_SMALL_FILE_HASH",
+      "path": "results\\ATOMICCHAT-4.27-Q3PLE-001\\gate_b_derivative_manifest.json",
+      "sha256": "603cf896091ea2b2e188cd4802a469774ee036c7a7e6569c40d5f39e5251693b"
+    },
+    {
+      "bytes": 1218,
+      "evidence_class": "MEASURED_SMALL_FILE_HASH",
+      "path": "results\\ATOMICCHAT-4.27-Q3PLE-001\\gate_b_dry_run.json",
+      "sha256": "7c5a7bc0c5358fc4d7d866eb8b7f900193ba6c1652f498d2f98beda79f1e9c2e"
+    },
+    {
+      "bytes": 1115,
+      "evidence_class": "MEASURED_SMALL_FILE_HASH",
+      "path": "results\\ATOMICCHAT-4.27-Q3PLE-001\\gate_b_dry_run_command.json",
+      "sha256": "3e78a94908f9bb75df64de0526f9be34244a3d055090b0917eee91a35920b46f"
+    },
+    {
+      "bytes": 1064,
+      "evidence_class": "MEASURED_SMALL_FILE_HASH",
+      "path": "results\\ATOMICCHAT-4.27-Q3PLE-001\\gate_b_preflight.json",
+      "sha256": "36a609321c55c4638a199ecd59ac6d979222603cb5e53049823664401d012c97"
+    },
+    {
+      "bytes": 3870,
+      "evidence_class": "MEASURED_SMALL_FILE_HASH",
+      "path": "results\\ATOMICCHAT-4.27-Q3PLE-001\\gate_b_prepromotion.json",
+      "sha256": "02f76f22759b653e61b72d669aab00839584c16dc3018b8eba538b6d6596cb87"
+    },
+    {
+      "bytes": 978,
+      "evidence_class": "MEASURED_SMALL_FILE_HASH",
+      "path": "results\\ATOMICCHAT-4.27-Q3PLE-001\\gate_b_promotion.json",
+      "sha256": "a25c003b5c00eb62ecd581be8cd8af6ee2800d7b72aba9500730e7711fee3a55"
+    },
+    {
+      "bytes": 2668,
+      "evidence_class": "MEASURED_SMALL_FILE_HASH",
+      "path": "results\\ATOMICCHAT-4.27-Q3PLE-001\\gate_b_review.md",
+      "sha256": "e46d80cf654ff06fdcd308d4bf854b6f3ccfe2138928749f5fbbc2e3513b2c0d"
+    },
+    {
+      "bytes": 15924,
+      "evidence_class": "MEASURED_SMALL_FILE_HASH",
+      "path": "results\\ATOMICCHAT-4.27-Q3PLE-001\\gate_b_source_hashes.json",
+      "sha256": "10e5fb581c4859d116a7e2d810ec433732d2821b6ed509baeccd346933d5c60a"
+    },
+    {
+      "bytes": 365783,
+      "evidence_class": "MEASURED_SMALL_FILE_HASH",
+      "path": "results\\ATOMICCHAT-4.27-Q3PLE-001\\gate_b_source_structure.json",
+      "sha256": "7aa1fa58cb2c738164b67169a5e44a189f4f837da998bc28e2a141dc1cff6c94"
+    },
+    {
+      "bytes": 752,
+      "evidence_class": "MEASURED_SMALL_FILE_HASH",
+      "path": "results\\ATOMICCHAT-4.27-Q3PLE-001\\gate_b_structural_validation.json",
+      "sha256": "6b586099cd5a649e7df86a5b85fd9a508857890b83dc4321fab717b4a8391133"
+    },
+    {
+      "bytes": 752,
+      "evidence_class": "MEASURED_SMALL_FILE_HASH",
+      "path": "results\\ATOMICCHAT-4.27-Q3PLE-001\\gate_b_structural_validation_final.json",
+      "sha256": "6b586099cd5a649e7df86a5b85fd9a508857890b83dc4321fab717b4a8391133"
+    },
+    {
+      "bytes": 19034,
+      "evidence_class": "MEASURED_SMALL_FILE_HASH",
+      "path": "results\\ATOMICCHAT-4.27-Q3PLE-001\\gate_b_tensor_equivalence.json",
+      "sha256": "85780df3a0d39e2899f90b9a12b40482d3277732e347f2e2ed233d97da6493c9"
+    },
+    {
+      "bytes": 15835,
+      "evidence_class": "MEASURED_SMALL_FILE_HASH",
+      "path": "workstreams\\atomicchat-q3ple-convert\\gate_b_closeout_validator.py",
+      "sha256": "da6faf7619e7890d35d6b2d4fcc063b270bd3de21b5597b25eadcf81b58d658a"
+    },
+    {
+      "bytes": 6981,
+      "evidence_class": "MEASURED_SMALL_FILE_HASH",
+      "path": "workstreams\\atomicchat-q3ple-convert\\gate_b_final_audit.py",
+      "sha256": "04678fe89584469f9ff7a371d166d193aeea4c7bdd4b395f17d2429b08c2246c"
+    },
+    {
+      "bytes": 7336,
+      "evidence_class": "MEASURED_SMALL_FILE_HASH",
+      "path": "workstreams\\atomicchat-q3ple-convert\\gate_b_validator.py",
+      "sha256": "5f5df5fc3dae4e7910bae7c30a9cca62822a5656fef9afadc0dc41af31c8fba3"
+    },
+    {
+      "bytes": 1735,
+      "evidence_class": "MEASURED_SMALL_FILE_HASH",
+      "path": "workstreams\\atomicchat-q3ple-convert\\hash_derivative.py",
+      "sha256": "2e21cf98fe4edf5247851a2b628117c13e45e59cd75e36c9ae9d3c3dcd3a4fee"
+    },
+    {
+      "bytes": 3377,
+      "evidence_class": "MEASURED_SMALL_FILE_HASH",
+      "path": "workstreams\\atomicchat-q3ple-convert\\run_conversion.py",
+      "sha256": "5e9e8d2b9b372fc2558a02df76aa1d62f38c4bf80c5a3260d7c507543552832e"
+    },
+    {
+      "bytes": 1575,
+      "evidence_class": "MEASURED_SMALL_FILE_HASH",
+      "path": "workstreams\\atomicchat-q3ple-convert\\source_preflight.py",
+      "sha256": "326be22e904be751b22010cff55b2bb2661e963605159f8f0264cd3931aad0ef"
+    },
+    {
+      "bytes": 2526,
+      "evidence_class": "MEASURED_SMALL_FILE_HASH",
+      "path": "workstreams\\atomicchat-q3ple-convert\\source_structure_preflight.py",
+      "sha256": "1874a5d95dac1620312ed113d9b9d85518f040b223965aa27d684656d69d3e37"
+    },
+    {
+      "bytes": 1162,
+      "evidence_class": "MEASURED_SMALL_FILE_HASH",
+      "path": "workstreams\\atomicchat-q3ple-convert\\test_gate_b_closeout_validator.py",
+      "sha256": "94ae74a3b553e9585405cc78c74d2d39449b5de98abb805ae797b78a322385e4"
+    },
+    {
+      "bytes": 3250,
+      "evidence_class": "MEASURED_SMALL_FILE_HASH",
+      "path": "workstreams\\atomicchat-q3ple-convert\\test_gate_b_validator.py",
+      "sha256": "c289a263bfa71cbadf0278e5da1463180cd9c0d7959e367589e0f9b2a6d8b7ea"
+    },
+    {
+      "bytes": 2165,
+      "evidence_class": "MEASURED_SMALL_FILE_HASH",
+      "path": "workstreams\\atomicchat-q3ple-convert\\write_gate_b_final_manifest.py",
+      "sha256": "ac81d86b93f354e265e7effc431582cadeda9b45d52bb226acf79019e0608777"
+    }
+  ],
+  "gate": "ATOMICCHAT-4.27-Q3PLE-001/GATE-B-EVIDENCE-CLOSEOUT",
+  "schema_version": 1,
+  "self_hash_omitted": "gate_b_final_manifest.json cannot recursively hash itself; its hash is recorded by the final audit log"
+}

@@ -1,0 +1,125 @@
+From cfbdc0a50d127893ce51369a7e1659f7537f778b Mon Sep 17 00:00:00 2001
+From: Daniel Han <danielhanchen@gmail.com>
+Date: Wed, 26 Aug 2026 15:06:10 +0000
+Subject: [PATCH 01/36] llama: save and restore the qwen4exp indexer KV cache
+
+llama_memory_hybrid_idx forwarded clear, seq_rm, seq_cp, seq_keep, seq_add and
+seq_div to the indexer cache but not state_write / state_read, so a saved
+session dropped the indexer keys and a restored one selected QSA top-k against
+an empty cache. The effect is invisible until the context passes
+indexer_top_k + compress_ratio - 1 cells, because QSA is exactly dense below
+that and the indexer contents cannot change the result.
+
+The indexer section is written last rather than next to the attention cache it
+mirrors. As a suffix, a reader that does not expect it stops early and the
+trailing bytes are caught by the size check in state_load_file; placed between
+the attention and recurrent sections it would instead be parsed as recurrent
+state, which can succeed and restore silent garbage. It follows the same
+LLAMA_STATE_SEQ_FLAGS_PARTIAL_ONLY gate as the attention cache, since a partial
+checkpoint deliberately skips the token-level attention caches.
+
+The indexer restores its own cells instead of taking the attention cache's
+restored slots. The two caches share size, padding and every sequence
+operation, and init_batch hands the indexer the attention cache's slot infos,
+so both state_read_meta calls run find_slot over identical occupancy and land
+on identical cells.
+
+The overrides live on llama_memory_hybrid_idx, the only memory type that owns
+an indexer cache, so llama_memory_hybrid and every architecture that uses it
+write and read exactly the bytes they did before.
+
+The session and sequence state versions are bumped because the qwen4exp state
+layout changed. The session path already rejects a short read via its size
+check, but llama_state_seq_load_file accepts one silently, so only the version
+check stops a pre-fix blob from being half-restored by a fixed build.
+
+(cherry picked from commit 2721542354f8e158c3217625f4e2e7b83e51e3fe)
+---
+ include/llama.h                 |  4 ++--
+ src/llama-memory-hybrid-idx.cpp | 36 +++++++++++++++++++++++++++++++++
+ src/llama-memory-hybrid-idx.h   |  5 +++++
+ 3 files changed, 43 insertions(+), 2 deletions(-)
+
+diff --git a/include/llama.h b/include/llama.h
+index a04177f9f..84313cfd7 100644
+--- a/include/llama.h
++++ b/include/llama.h
+@@ -43,10 +43,10 @@
+ #define LLAMA_FILE_MAGIC_GGSQ 0x67677371u // 'ggsq'
+ 
+ #define LLAMA_SESSION_MAGIC   LLAMA_FILE_MAGIC_GGSN
+-#define LLAMA_SESSION_VERSION 9
++#define LLAMA_SESSION_VERSION 10
+ 
+ #define LLAMA_STATE_SEQ_MAGIC   LLAMA_FILE_MAGIC_GGSQ
+-#define LLAMA_STATE_SEQ_VERSION 2
++#define LLAMA_STATE_SEQ_VERSION 3
+ 
+ #ifdef __cplusplus
+ extern "C" {
+diff --git a/src/llama-memory-hybrid-idx.cpp b/src/llama-memory-hybrid-idx.cpp
+index 0974a67e4..81a8dad2f 100644
+--- a/src/llama-memory-hybrid-idx.cpp
++++ b/src/llama-memory-hybrid-idx.cpp
+@@ -199,6 +199,42 @@ std::map<ggml_backend_buffer_type_t, size_t> llama_memory_hybrid_idx::memory_bre
+     return mb;
+ }
+ 
++void llama_memory_hybrid_idx::state_write(llama_io_write_i & io, llama_seq_id seq_id, llama_state_seq_flags flags) const {
++    llama_memory_hybrid::state_write(io, seq_id, flags);
++
++    // [TAG_HYBRID_IDX_STATE]
++    // the indexer cache is written last so that its payload is a pure suffix of the
++    //   attn+recr layout every other hybrid model already produces. Placing it between
++    //   the two would make a reader that does not expect it parse the indexer bytes as
++    //   recurrent state, which can succeed and restore silent garbage; as a suffix, a
++    //   reader that does not expect it just stops early and the trailing bytes are
++    //   caught by the size check in llama_context::state_load_file.
++    // the indexer mirrors the attention cache, so it follows the same PARTIAL_ONLY
++    //   gate: a partial checkpoint deliberately skips the token-level attention caches.
++    if ((flags & LLAMA_STATE_SEQ_FLAGS_PARTIAL_ONLY) == 0) {
++        if (mem_idx) {
++            mem_idx->state_write(io, seq_id, flags);
++        }
++    }
++}
++
++void llama_memory_hybrid_idx::state_read(llama_io_read_i & io, llama_seq_id seq_id, llama_state_seq_flags flags) {
++    llama_memory_hybrid::state_read(io, seq_id, flags);
++
++    // [TAG_HYBRID_IDX_STATE]
++    // must mirror the write order above.
++    // the indexer restores its own cells rather than being handed the attention
++    //   cache's restored slots, which is safe because the two caches are kept in
++    //   lockstep - same size, same n_pad, same seq_* operations, and init_batch hands
++    //   the indexer the attention cache's slot infos - so both state_read_meta calls
++    //   run find_slot over identical occupancy and land on identical cells.
++    if ((flags & LLAMA_STATE_SEQ_FLAGS_PARTIAL_ONLY) == 0) {
++        if (mem_idx) {
++            mem_idx->state_read(io, seq_id, flags);
++        }
++    }
++}
++
+ llama_kv_cache * llama_memory_hybrid_idx::get_mem_idx() const {
+     return mem_idx.get();
+ }
+diff --git a/src/llama-memory-hybrid-idx.h b/src/llama-memory-hybrid-idx.h
+index d5e75ef70..fda3fd64a 100644
+--- a/src/llama-memory-hybrid-idx.h
++++ b/src/llama-memory-hybrid-idx.h
+@@ -75,6 +75,11 @@ public:
+ 
+     std::map<ggml_backend_buffer_type_t, size_t> memory_breakdown() const override;
+ 
++    // state write/load
++
++    void state_write(llama_io_write_i & io, llama_seq_id seq_id = -1, llama_state_seq_flags flags = 0) const override;
++    void state_read (llama_io_read_i  & io, llama_seq_id seq_id = -1, llama_state_seq_flags flags = 0)       override;
++
+     //
+     // llama_memory_hybrid_idx specific API
+     //
+-- 
+2.40.0.windows.1
+

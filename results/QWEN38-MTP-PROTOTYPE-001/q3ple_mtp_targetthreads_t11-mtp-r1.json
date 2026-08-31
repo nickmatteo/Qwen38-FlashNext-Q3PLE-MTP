@@ -1,0 +1,23 @@
+{
+  "tag": "t11-mtp-r1",
+  "target_threads": 11,
+  "warm": {
+    "repeat": 2,
+    "prompt_tokens": 232,
+    "completion_tokens": 171,
+    "prefill_tps": 92.88140126006431,
+    "decode_tps": 31.50213287970262,
+    "draft_n": 129,
+    "draft_n_accepted": 129,
+    "finish_reason": "stop",
+    "output_sha256": "1d8901ca23cdcd8226387260017dbe9131d1ab008226fe48e36f221f15d07947",
+    "ids_sha256": "547b0f1bc38def0ba5674cb536b7c9cf03ba99c71e31e35429198eeba982556e",
+    "exact": true
+  },
+  "peak": {
+    "min_ram": 15361490944,
+    "min_vram": 780,
+    "max_rss": 39942758400
+  },
+  "violation": []
+}

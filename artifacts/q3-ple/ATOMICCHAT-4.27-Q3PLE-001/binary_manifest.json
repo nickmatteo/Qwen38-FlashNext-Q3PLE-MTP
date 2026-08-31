@@ -1,0 +1,160 @@
+{
+  "schema_version": 1,
+  "gate": "ATOMICCHAT-4.27-Q3PLE-001",
+  "captured_utc": "2026-08-28T05:57:36.244171+00:00",
+  "base_commit": "ca3d5a3e10d53f7ea672cb9b6178faca3e2807bc",
+  "build_info_commit": "ca3d5a3e10d53f7ea672cb9b6178faca3e2807bc",
+  "compiler": "MSVC 19.44.35224.0",
+  "build_target": "Windows AMD64",
+  "cmake": "3.31.6-msvc6",
+  "ninja": "1.12.1",
+  "cuda": "13.1.115",
+  "cuda_architecture": "120a",
+  "configuration": {
+    "generator": "Ninja",
+    "build_type": "Release",
+    "GGML_CUDA": "ON",
+    "GGML_RPC": "ON",
+    "LLAMA_BUILD_TESTS": "ON",
+    "LLAMA_CURL": "OFF",
+    "CMAKE_C_COMPILER": "C:/Program Files (x86)/Microsoft Visual Studio/2022/BuildTools/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/cl.exe",
+    "CMAKE_MAKE_PROGRAM": "C:/Program Files (x86)/Microsoft Visual Studio/2022/BuildTools/Common7/IDE/CommonExtensions/Microsoft/CMake/Ninja/ninja.exe",
+    "CMAKE_CUDA_COMPILER": "C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v13.1\\bin\\nvcc.exe"
+  },
+  "final_patch_sha256": "ab0fb4ec59d7ee22ef9c5f490a49cbd3e581e8f9ef7e28331a1f9743df2e61ab",
+  "binaries": [
+    {
+      "name": "ggml-base.dll",
+      "role": "future_runtime_converter",
+      "path": "Z:\\Qwen38-FlashNext-Cluster\\workstreams\\llama.cpp-atomicchat-q3ple-live\\build-win-cuda-q3ple\\bin\\ggml-base.dll",
+      "bytes": 663040,
+      "sha256": "809e67b43ba9be62fd55e0409103ad5f0c657f64eae21c98a1478e11d2aee559"
+    },
+    {
+      "name": "ggml-cpu.dll",
+      "role": "future_runtime_converter",
+      "path": "Z:\\Qwen38-FlashNext-Cluster\\workstreams\\llama.cpp-atomicchat-q3ple-live\\build-win-cuda-q3ple\\bin\\ggml-cpu.dll",
+      "bytes": 905216,
+      "sha256": "d8577c14e407ab9cf3e6aada190c65116b1e33921bc257484ae9f82940225e5a"
+    },
+    {
+      "name": "ggml-cuda.dll",
+      "role": "future_runtime_converter",
+      "path": "Z:\\Qwen38-FlashNext-Cluster\\workstreams\\llama.cpp-atomicchat-q3ple-live\\build-win-cuda-q3ple\\bin\\ggml-cuda.dll",
+      "bytes": 54605824,
+      "sha256": "c46cad6bc54cdcc1579636cf59f44a1a6155bc2056f1bd2c6e1f26c576414351"
+    },
+    {
+      "name": "ggml-rpc.dll",
+      "role": "future_runtime_converter",
+      "path": "Z:\\Qwen38-FlashNext-Cluster\\workstreams\\llama.cpp-atomicchat-q3ple-live\\build-win-cuda-q3ple\\bin\\ggml-rpc.dll",
+      "bytes": 146432,
+      "sha256": "fead9f7ffd7eeea3ba254694028dfea791965881d4d49ec2497b678b053fb511"
+    },
+    {
+      "name": "ggml.dll",
+      "role": "future_runtime_converter",
+      "path": "Z:\\Qwen38-FlashNext-Cluster\\workstreams\\llama.cpp-atomicchat-q3ple-live\\build-win-cuda-q3ple\\bin\\ggml.dll",
+      "bytes": 67072,
+      "sha256": "38e1b01e0c78e65edfd398c4f99c019bcb3c64d52de7b732e8a058651bca43e1"
+    },
+    {
+      "name": "llama-cli-impl.dll",
+      "role": "future_runtime_converter",
+      "path": "Z:\\Qwen38-FlashNext-Cluster\\workstreams\\llama.cpp-atomicchat-q3ple-live\\build-win-cuda-q3ple\\bin\\llama-cli-impl.dll",
+      "bytes": 868352,
+      "sha256": "2d1abf4f82bccd8111c2d6300e07bdb4d74aac227ecc210d7ade8fd1840b921a"
+    },
+    {
+      "name": "llama-cli.exe",
+      "role": "future_runtime_converter",
+      "path": "Z:\\Qwen38-FlashNext-Cluster\\workstreams\\llama.cpp-atomicchat-q3ple-live\\build-win-cuda-q3ple\\bin\\llama-cli.exe",
+      "bytes": 10752,
+      "sha256": "eb8187e27a8d9dc39b557a5119d7e5dbebc4ade46c511f23b33d1d8154b5451f"
+    },
+    {
+      "name": "llama-common.dll",
+      "role": "future_runtime_converter",
+      "path": "Z:\\Qwen38-FlashNext-Cluster\\workstreams\\llama.cpp-atomicchat-q3ple-live\\build-win-cuda-q3ple\\bin\\llama-common.dll",
+      "bytes": 8199168,
+      "sha256": "621112f09e8b7ecf26dfc36c7c23b1359095b9aadc12b8f3b922221760bf3d77"
+    },
+    {
+      "name": "llama-quantize-impl.dll",
+      "role": "future_runtime_converter",
+      "path": "Z:\\Qwen38-FlashNext-Cluster\\workstreams\\llama.cpp-atomicchat-q3ple-live\\build-win-cuda-q3ple\\bin\\llama-quantize-impl.dll",
+      "bytes": 332288,
+      "sha256": "2579420802692030e51586a940931546e57b46618d1cf5a88cbe70f496833bec"
+    },
+    {
+      "name": "llama-quantize.exe",
+      "role": "future_runtime_converter",
+      "path": "Z:\\Qwen38-FlashNext-Cluster\\workstreams\\llama.cpp-atomicchat-q3ple-live\\build-win-cuda-q3ple\\bin\\llama-quantize.exe",
+      "bytes": 10752,
+      "sha256": "c10b228f612110fab3021e307c759791d88493682ad83fc8d9f4be5f0d7ec166"
+    },
+    {
+      "name": "llama-server-impl.dll",
+      "role": "future_runtime_converter",
+      "path": "Z:\\Qwen38-FlashNext-Cluster\\workstreams\\llama.cpp-atomicchat-q3ple-live\\build-win-cuda-q3ple\\bin\\llama-server-impl.dll",
+      "bytes": 13083136,
+      "sha256": "62359fdada3fd9e0249a1f1a41fcfe2f5c66f8850b6a38c6d5af305406a666e9"
+    },
+    {
+      "name": "llama-server.exe",
+      "role": "future_runtime_converter",
+      "path": "Z:\\Qwen38-FlashNext-Cluster\\workstreams\\llama.cpp-atomicchat-q3ple-live\\build-win-cuda-q3ple\\bin\\llama-server.exe",
+      "bytes": 10752,
+      "sha256": "06674171e3425ababd34ec7e3778fbaac4429c7015dad83e9863f5405951012d"
+    },
+    {
+      "name": "llama.dll",
+      "role": "future_runtime_converter",
+      "path": "Z:\\Qwen38-FlashNext-Cluster\\workstreams\\llama.cpp-atomicchat-q3ple-live\\build-win-cuda-q3ple\\bin\\llama.dll",
+      "bytes": 2572288,
+      "sha256": "7efd26040c9cb70a06dbd0a34e2129bfc3c128e85adb6fc37b6440e0420722ec"
+    },
+    {
+      "name": "mtmd.dll",
+      "role": "future_runtime_converter",
+      "path": "Z:\\Qwen38-FlashNext-Cluster\\workstreams\\llama.cpp-atomicchat-q3ple-live\\build-win-cuda-q3ple\\bin\\mtmd.dll",
+      "bytes": 2380288,
+      "sha256": "43e15e7bbf78a9d57e22f8b397aad6884c9eef457fff68d31142a7486358d935"
+    },
+    {
+      "name": "test-backend-ops.exe",
+      "role": "gate_a_validation",
+      "path": "Z:\\Qwen38-FlashNext-Cluster\\workstreams\\llama.cpp-atomicchat-q3ple-live\\build-win-cuda-q3ple\\bin\\test-backend-ops.exe",
+      "bytes": 988672,
+      "sha256": "332ff498a9f6e06f4a8ee73993f1e17e3c204b26118410f334215989f65cd463"
+    },
+    {
+      "name": "test-gguf.exe",
+      "role": "gate_a_validation",
+      "path": "Z:\\Qwen38-FlashNext-Cluster\\workstreams\\llama.cpp-atomicchat-q3ple-live\\build-win-cuda-q3ple\\bin\\test-gguf.exe",
+      "bytes": 61440,
+      "sha256": "32f187801dc586cfe55319c8ac38c6effe7478d01a9486fcf52c92dd1f6c33be"
+    },
+    {
+      "name": "test-quant-type-selection.exe",
+      "role": "gate_a_validation",
+      "path": "Z:\\Qwen38-FlashNext-Cluster\\workstreams\\llama.cpp-atomicchat-q3ple-live\\build-win-cuda-q3ple\\bin\\test-quant-type-selection.exe",
+      "bytes": 14336,
+      "sha256": "3da4d281f4f60bcf26d2a76514e7d5ae0d96e9263c32a6817fd76092e138520f"
+    },
+    {
+      "name": "test-quantize-fns.exe",
+      "role": "gate_a_validation",
+      "path": "Z:\\Qwen38-FlashNext-Cluster\\workstreams\\llama.cpp-atomicchat-q3ple-live\\build-win-cuda-q3ple\\bin\\test-quantize-fns.exe",
+      "bytes": 26624,
+      "sha256": "55d4fbbddeb1257f0a67fecb1468bcbc3eb31d01506d6ac8e297bc7573a738d4"
+    },
+    {
+      "name": "test-rpc-q3ple-reject.exe",
+      "role": "gate_a_validation",
+      "path": "Z:\\Qwen38-FlashNext-Cluster\\workstreams\\llama.cpp-atomicchat-q3ple-live\\build-win-cuda-q3ple\\bin\\test-rpc-q3ple-reject.exe",
+      "bytes": 167424,
+      "sha256": "f0f4ebbca71033aa02f2c8e52c2d8a9f6ae94f7841690218f4ec4d95e8bac509"
+    }
+  ]
+}

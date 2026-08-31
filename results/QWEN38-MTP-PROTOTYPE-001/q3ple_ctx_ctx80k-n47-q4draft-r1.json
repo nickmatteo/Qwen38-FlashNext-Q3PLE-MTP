@@ -1,0 +1,25 @@
+{
+  "tag": "ctx80k-n47-q4draft-r1",
+  "ctx": 81920,
+  "ncpu": 47,
+  "draft_kv": "q4_0",
+  "warm": {
+    "repeat": 2,
+    "prompt_tokens": 232,
+    "completion_tokens": 171,
+    "prefill_tps": 82.65192992256368,
+    "decode_tps": 25.810867377234786,
+    "draft_n": 128,
+    "draft_n_accepted": 128,
+    "finish_reason": "stop",
+    "output_sha256": "1d8901ca23cdcd8226387260017dbe9131d1ab008226fe48e36f221f15d07947",
+    "ids_sha256": "547b0f1bc38def0ba5674cb536b7c9cf03ba99c71e31e35429198eeba982556e",
+    "exact": true
+  },
+  "peak": {
+    "min_ram": 13702688768,
+    "min_vram": 1569,
+    "max_rss": 38799855616
+  },
+  "violation": []
+}

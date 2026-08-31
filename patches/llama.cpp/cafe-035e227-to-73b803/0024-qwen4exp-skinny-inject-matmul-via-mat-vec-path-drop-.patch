@@ -1,0 +1,113 @@
+From b6d995d509dcfc9a71b8b9986a9df94bcd883ee8 Mon Sep 17 00:00:00 2001
+From: Joakim Hansson <joakim.hansson87@gmail.com>
+Date: Fri, 28 Aug 2026 16:56:03 +0000
+Subject: [PATCH 24/36] qwen4exp: skinny inject matmul via mat-vec path, drop
+ mean-collapse copies
+
+The hyper-connection inject projection (m=4, k=10240) ran on the tiled
+MM path at batched sizes, wasting 15/16 of every tile (77 GFLOPS beside
+multi-TFLOPS neighbors). For n_tokens > 8 compute the transpose instead:
+[nt,4] rides the mat-vec shaders' 4-column path (287 GFLOPS, 3.7x) and a
+tiny transpose restores the layout. Decode keeps the original orientation
+so the fused scale/sigmoid/scale epilog still applies.
+
+The stream mean-collapse cont'ed the first slice into a fresh full-size
+buffer before summing; the first add materializes the contiguous result
+itself, so the copy (and its ~1ms x 95 per prefill chunk, plus ~100
+launches per decode token) is dropped. Same for the pooled-key gather
+slices; the MTP graph already did it this way.
+
+pp32000: 315 -> 330 t/s (+4.7%). Greedy deep output diverges only at the
+known order-noise tie token; decode unchanged within noise.
+
+Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01AUwCGmqs39JdaEFjBmtvDa
+---
+ src/models/qwen4exp.cpp | 37 +++++++++++++++++++++++++------------
+ 1 file changed, 25 insertions(+), 12 deletions(-)
+
+diff --git a/src/models/qwen4exp.cpp b/src/models/qwen4exp.cpp
+index 703cfbc02..c0f25dfa1 100644
+--- a/src/models/qwen4exp.cpp
++++ b/src/models/qwen4exp.cpp
+@@ -316,8 +316,10 @@ llama_model_qwen4exp::graph_mtp::graph_mtp(const llama_model & model, const llm_
+     // collapse the hc streams of a [hc_dim, T] tensor by their mean
+     auto mean_hc = [&](ggml_tensor * x2d) {
+         ggml_tensor * x3 = ggml_reshape_3d(ctx0, x2d, n_embd, hc, n_tokens);
+-        ggml_tensor * m = ggml_cont(ctx0, ggml_view_2d(ctx0, x3, n_embd, n_tokens,
+-                ggml_row_size(x3->type, n_embd) * hc, 0));
++        // the first slice stays a view: the first add produces the contiguous tensor,
++        // saving a full-size copy (hc >= 2 for every qwen4exp checkpoint)
++        ggml_tensor * m = ggml_view_2d(ctx0, x3, n_embd, n_tokens,
++                ggml_row_size(x3->type, n_embd) * hc, 0);
+         for (int64_t c = 1; c < hc; ++c) {
+             ggml_tensor * st = ggml_view_2d(ctx0, x3, n_embd, n_tokens,
+                     ggml_row_size(x3->type, n_embd) * hc,
+@@ -532,9 +534,10 @@ ggml_tensor * llama_model_qwen4exp::graph::build_hc_mix(
+     gated = ggml_reshape_3d(ctx0, gated, n_embd, hc, nt);
+ 
+     // collapse the streams by their mean
++    // the first slice stays a view: the first add produces the contiguous tensor,
++    // saving a full-size copy per hc_mix (~1ms x 95 per 2048-token prefill chunk)
+     ggml_tensor * mixed = ggml_view_2d(ctx0, gated, n_embd, nt,
+             ggml_row_size(gated->type, n_embd) * hc, 0);
+-    mixed = ggml_cont(ctx0, mixed);
+     for (int64_t c = 1; c < hc; ++c) {
+         ggml_tensor * s = ggml_view_2d(ctx0, gated, n_embd, nt,
+                 ggml_row_size(gated->type, n_embd) * hc,
+@@ -545,9 +548,18 @@ ggml_tensor * llama_model_qwen4exp::graph::build_hc_mix(
+     cb(mixed, "hc_mixed", il);
+ 
+     if (inject) {
+-        // fold the combine-gate activation onto the inject mat-vec so the
+-        // backend can fuse mat-vec + scale + sigmoid + scale into one dispatch
+-        ggml_tensor * w = build_lora_mm(w_inject, xn);
++        // decode: plain mat-vec, so the backend fuses mat-vec + scale + sigmoid + scale.
++        // batched prefill: m=4 wastes 15/16 of every MM tile (measured 77 GFLOPS beside
++        // 6-17 TFLOPS neighbors); computing the transpose routes through the mat-vec
++        // shaders (4 columns <= the 8-column limit) and a tiny [nt,4] transpose restores
++        // the layout.
++        ggml_tensor * w;
++        if (nt > 8) {
++            w = ggml_mul_mat(ctx0, xn, w_inject);
++            w = ggml_cont(ctx0, ggml_transpose(ctx0, w));
++        } else {
++            w = build_lora_mm(w_inject, xn);
++        }
+         w = ggml_scale(ctx0, ggml_sigmoid(ctx0, ggml_scale(ctx0, w, 1.0f / (float) hc)), 2.0f);
+         *inject = w;
+         cb(*inject, "hc_inject", il);
+@@ -866,11 +878,12 @@ ggml_tensor * llama_model_qwen4exp::graph::build_qsa_top_k(
+ 
+         ggml_tensor * fresh = nullptr;
+         for (int64_t i = 0; i < r; ++i) {
+-            ggml_tensor * slice = ggml_cont(ctx0,
+-                    ggml_view_3d(ctx0, members, idx_dim, n_dirty_max, 1,
+-                            members->nb[2], members->nb[3], i*members->nb[1]));
++            ggml_tensor * slice = ggml_view_3d(ctx0, members, idx_dim, n_dirty_max, 1,
++                    members->nb[2], members->nb[3], i*members->nb[1]);
++            // r >= 2, so the first add materializes the contiguous sum
+             fresh = fresh ? ggml_add(ctx0, fresh, slice) : slice;
+         }
++        GGML_ASSERT(r >= 2);
+         fresh = ggml_scale(ctx0, fresh, 1.0f/(float) r);
+         cb(fresh, "indexer_k_pooled", il);
+ 
+@@ -895,11 +908,11 @@ ggml_tensor * llama_model_qwen4exp::graph::build_qsa_top_k(
+ 
+         // mean over the block members; r is small, so summing slices beats a transpose plus sum_rows
+         for (int64_t i = 0; i < r; ++i) {
+-            ggml_tensor * slice = ggml_cont(ctx0,
+-                    ggml_view_3d(ctx0, members, idx_dim, n_blocks, n_stream,
+-                            members->nb[2], members->nb[3], i*members->nb[1]));
++            ggml_tensor * slice = ggml_view_3d(ctx0, members, idx_dim, n_blocks, n_stream,
++                    members->nb[2], members->nb[3], i*members->nb[1]);
+             pooled = pooled ? ggml_add(ctx0, pooled, slice) : slice;
+         }
++        GGML_ASSERT(r >= 2);
+         pooled = ggml_scale(ctx0, pooled, 1.0f/(float) r);
+         cb(pooled, "indexer_k_pooled", il);
+ 
+-- 
+2.40.0.windows.1
+

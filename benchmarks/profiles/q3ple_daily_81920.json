@@ -1,0 +1,77 @@
+{
+  "schema": "q3ple-daily-profile-v1",
+  "profile_id": "Q3PLE-MTP-AGENTIC-003",
+  "name": "Q3PLE MTP daily 81K warm slot",
+  "status": "EXPERIMENTAL_DIAGNOSTIC",
+  "runtime": {
+    "kind": "mtp-slot-state",
+    "worktree_commit": "73b803464f25fc9054046728bf2ebed5a372737e",
+    "port": 18088,
+    "parallel_slots": 1,
+    "slot_id": 0
+  },
+  "model": {
+    "target": "Qwen3.8-Flash-Next Q3_PLE target GGUF",
+    "sidecar": "learned MTP detached draft head",
+    "n_cpu_moe": 48,
+    "context_tokens": 81920,
+    "target_kv": "q4_0",
+    "draft_kv": "q4_0"
+  },
+  "target": {
+    "threads": 11,
+    "threads_batch": 11,
+    "batch_size": 2048,
+    "ubatch_size": 256
+  },
+  "mtp": {
+    "spec_type_default": "none",
+    "n_max": 3,
+    "p_min": 0.75,
+    "draft_device": "CUDA0",
+    "draft_ngl": 0,
+    "draft_threads": 8,
+    "draft_threads_batch": 8,
+    "draft_expert_placement": "CUDA_Host"
+  },
+  "environment": {
+    "QWEN38_MTP_UBATCH": "64",
+    "QWEN38_MTP_DRAFT_EXPERT_OFFLOAD": "1",
+    "GGML_CUDA_MOE_CACHE_MB": "0",
+    "QWEN38_WORKING_SET_CAP_GIB": "37"
+  },
+  "safety": {
+    "preflight_ram_available_bytes": 42949672960,
+    "preflight_vram_free_mib": 8192,
+    "preflight_gpu_utilization_pct": 15,
+    "hard_ram_available_bytes": 6442450944,
+    "hard_vram_free_mib": 768,
+    "promotion_vram_free_mib": 1024,
+    "hard_owned_rss_bytes": 53687091200,
+    "hard_pagefile_growth_bytes": 1073741824
+  },
+  "persistence": {
+    "root": "results/QWEN38-MTP-PROTOTYPE-001/daily/Q3PLE-MTP-AGENTIC-003",
+    "generation_directory_pattern": "generations/gen-{number:06d}",
+    "current_manifest": "current.json",
+    "pair_files": ["target.slot.bin", "target.slot.bin.dft"],
+    "pointer_update": "atomic_replace",
+    "crash_atomic_pair": false,
+    "out_of_scope": [
+      "torn writes",
+      "power-loss recovery",
+      "concurrent writers",
+      "format migration"
+    ]
+  },
+  "lifecycle": {
+    "one_long_lived_server": true,
+    "process_only_new_suffix": true,
+    "checkpoint_after_complete_assistant_message": true,
+    "target_mode_must_be_selected_before_generation": true,
+    "silent_fallback": false,
+    "target_only_marks_mtp": "STALE/RESYNC_REQUIRED",
+    "automatic_resync": false,
+    "cleanup": "stop only the owned PID whose executable identity matches"
+  }
+}

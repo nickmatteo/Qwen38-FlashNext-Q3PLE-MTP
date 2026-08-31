@@ -1,0 +1,50 @@
+From 4c3ee4526a5fb7555c9c5ef02c09ef1ff0cf25cc Mon Sep 17 00:00:00 2001
+From: Your Name <you@example.com>
+Date: Sun, 30 Aug 2026 12:12:20 -0400
+Subject: [PATCH 34/36] mtp: enable draft-only expert streaming and CUDA_Host
+ overrides
+
+---
+ common/arg.cpp                  |  4 ++++
+ ggml/src/ggml-cuda/ggml-cuda.cu | 10 ++++++++++
+ 2 files changed, 14 insertions(+)
+
+diff --git a/common/arg.cpp b/common/arg.cpp
+index 8f011e643..7c51ebbee 100644
+--- a/common/arg.cpp
++++ b/common/arg.cpp
+@@ -259,6 +259,10 @@ static void parse_tensor_buffer_overrides(const std::string & value, std::vector
+         if (buft) {
+             buft_list[ggml_backend_buft_name(buft)] = buft;
+         }
++        auto * host_buft = ggml_backend_dev_host_buffer_type(dev);
++        if (host_buft) {
++            buft_list[ggml_backend_buft_name(host_buft)] = host_buft;
++        }
+     }
+ 
+     for (const auto & override : string_split<std::string>(value, ',')) {
+diff --git a/ggml/src/ggml-cuda/ggml-cuda.cu b/ggml/src/ggml-cuda/ggml-cuda.cu
+index 659a3b3f8..07731738e 100644
+--- a/ggml/src/ggml-cuda/ggml-cuda.cu
++++ b/ggml/src/ggml-cuda/ggml-cuda.cu
+@@ -5366,6 +5366,16 @@ static int64_t get_op_batch_size(const ggml_tensor * op) {
+ static bool ggml_backend_cuda_device_offload_op(ggml_backend_dev_t dev, const ggml_tensor * op) {
+     ggml_backend_cuda_device_context * dev_ctx = (ggml_backend_cuda_device_context *) dev->context;
+ 
++    // Experimental Qwen3.8 MTP path: allow only the standalone blk.48 draft MoE
++    // to offload at token batch 1 while preserving the normal threshold for target layers.
++    if (getenv("QWEN38_MTP_DRAFT_EXPERT_OFFLOAD") != nullptr &&
++        op->op == GGML_OP_MUL_MAT_ID && op->src[0] != nullptr) {
++        const char * name = op->src[0]->name;
++        if (strncmp(name, "blk.48.ffn_", 11) == 0 && strstr(name, "_exps") != nullptr) {
++            return true;
++        }
++    }
++
+     return get_op_batch_size(op) >= dev_ctx->op_offload_min_batch_size;
+ }
+ 
+-- 
+2.40.0.windows.1
+

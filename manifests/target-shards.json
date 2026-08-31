@@ -1,0 +1,207 @@
+{
+  "schema_version": 1,
+  "artifact": "Qwen3.8-Flash-Next-AD-4.27bpw-Q3_PLE-M64",
+  "source_manifest_sha256": "603cf896091ea2b2e188cd4802a469774ee036c7a7e6569c40d5f39e5251693b",
+  "file_count": 33,
+  "aggregate_bytes": 78525318176,
+  "files": [
+    {
+      "number": 1,
+      "filename": "Qwen3.8-Flash-Next-AD-4.27bpw-Q3_PLE-M64-00001-of-00033.gguf",
+      "bytes": 693380288,
+      "sha256": "d160140839732e03f0fdad1bf27b7512ffbee4dc411bce0f986367a005d9a726"
+    },
+    {
+      "number": 2,
+      "filename": "Qwen3.8-Flash-Next-AD-4.27bpw-Q3_PLE-M64-00002-of-00033.gguf",
+      "bytes": 22400107712,
+      "sha256": "8c38df43098990f837bb7f25e244d66d76a37fb6d1f1d6192686ccb2d5354090"
+    },
+    {
+      "number": 3,
+      "filename": "Qwen3.8-Flash-Next-AD-4.27bpw-Q3_PLE-M64-00003-of-00033.gguf",
+      "bytes": 1999024832,
+      "sha256": "a72f85c8820b32e414fe83d5f8c3e916c0ba4fbe9aed99443b1a0b986804b932"
+    },
+    {
+      "number": 4,
+      "filename": "Qwen3.8-Flash-Next-AD-4.27bpw-Q3_PLE-M64-00004-of-00033.gguf",
+      "bytes": 1787651072,
+      "sha256": "039f97896c1e22b571fc931f4307b4a9198ea35ff4a684745d5199904314927c"
+    },
+    {
+      "number": 5,
+      "filename": "Qwen3.8-Flash-Next-AD-4.27bpw-Q3_PLE-M64-00005-of-00033.gguf",
+      "bytes": 1654830080,
+      "sha256": "3146e8d78b59c520da1f9b1fc984ee0982224e8c784b65dc4d9c2aaab54dad67"
+    },
+    {
+      "number": 6,
+      "filename": "Qwen3.8-Flash-Next-AD-4.27bpw-Q3_PLE-M64-00006-of-00033.gguf",
+      "bytes": 1993256608,
+      "sha256": "c027dec1898573ab755daf9e988cacf5722a293af67f6210fdd577b9e9bcad6b"
+    },
+    {
+      "number": 7,
+      "filename": "Qwen3.8-Flash-Next-AD-4.27bpw-Q3_PLE-M64-00007-of-00033.gguf",
+      "bytes": 1725815808,
+      "sha256": "993b905c6bf51fa1dd9b5296702f6f5b2cc985ff031b1c828b74742ad99f7408"
+    },
+    {
+      "number": 8,
+      "filename": "Qwen3.8-Flash-Next-AD-4.27bpw-Q3_PLE-M64-00008-of-00033.gguf",
+      "bytes": 1830961056,
+      "sha256": "b700e99589bc0f9c4973ca1905435da39cddca08105bf08ffd50e3f34a2779b4"
+    },
+    {
+      "number": 9,
+      "filename": "Qwen3.8-Flash-Next-AD-4.27bpw-Q3_PLE-M64-00009-of-00033.gguf",
+      "bytes": 1915366048,
+      "sha256": "218ab759ed5e97f7201212ce4b956f5a9502e81c1f1ba7202cd1839b4efd7611"
+    },
+    {
+      "number": 10,
+      "filename": "Qwen3.8-Flash-Next-AD-4.27bpw-Q3_PLE-M64-00010-of-00033.gguf",
+      "bytes": 1711956000,
+      "sha256": "eeeccfbc366557beda798b1ae5e4769144a91f28bc820ac99865eebe021a9510"
+    },
+    {
+      "number": 11,
+      "filename": "Qwen3.8-Flash-Next-AD-4.27bpw-Q3_PLE-M64-00011-of-00033.gguf",
+      "bytes": 1844820928,
+      "sha256": "5f30f62893dd5f213de70a7bc4ee41b1c6157fbb170b1741a931c03e10bc3b67"
+    },
+    {
+      "number": 12,
+      "filename": "Qwen3.8-Flash-Next-AD-4.27bpw-Q3_PLE-M64-00012-of-00033.gguf",
+      "bytes": 1923724224,
+      "sha256": "0d532fce1cc439c26a791efefc68d0624ef409b8fa30d78ed5cf6f9614b09423"
+    },
+    {
+      "number": 13,
+      "filename": "Qwen3.8-Flash-Next-AD-4.27bpw-Q3_PLE-M64-00013-of-00033.gguf",
+      "bytes": 1703597888,
+      "sha256": "eb319e538767265b78de150ae9caafd303812fcdbbef976889aa7b4c357ac09a"
+    },
+    {
+      "number": 14,
+      "filename": "Qwen3.8-Flash-Next-AD-4.27bpw-Q3_PLE-M64-00014-of-00033.gguf",
+      "bytes": 1844820928,
+      "sha256": "fdfcc70a6c8b546e16681bcea5cf3e7eb576238065d610a3d588f60ae7d02c97"
+    },
+    {
+      "number": 15,
+      "filename": "Qwen3.8-Flash-Next-AD-4.27bpw-Q3_PLE-M64-00015-of-00033.gguf",
+      "bytes": 1909864352,
+      "sha256": "b4a933fb790f8771b0fb14c0cbe74263854e9c291f25aca7b9c800c216b1d50f"
+    },
+    {
+      "number": 16,
+      "filename": "Qwen3.8-Flash-Next-AD-4.27bpw-Q3_PLE-M64-00016-of-00033.gguf",
+      "bytes": 1717457728,
+      "sha256": "e161b314072c59e5040835c02c07f5e22ceea6fdec630c97383d6d2247bc3f3f"
+    },
+    {
+      "number": 17,
+      "filename": "Qwen3.8-Flash-Next-AD-4.27bpw-Q3_PLE-M64-00017-of-00033.gguf",
+      "bytes": 1853179072,
+      "sha256": "ab6ea8a79d9dba1fab50684e619dd1874ebb62f851c68bbfbf6ec1aec5c9e681"
+    },
+    {
+      "number": 18,
+      "filename": "Qwen3.8-Flash-Next-AD-4.27bpw-Q3_PLE-M64-00018-of-00033.gguf",
+      "bytes": 1901506240,
+      "sha256": "d885fcdb3ba2a9eba59e42ea96b46cd10f8b1b05db8cb285047e88c6a5f258f4"
+    },
+    {
+      "number": 19,
+      "filename": "Qwen3.8-Flash-Next-AD-4.27bpw-Q3_PLE-M64-00019-of-00033.gguf",
+      "bytes": 1725815872,
+      "sha256": "281b7f74c4ec378a959fa7af1aacd4f300fe69048db1bfd3d3bd81b38ed4103a"
+    },
+    {
+      "number": 20,
+      "filename": "Qwen3.8-Flash-Next-AD-4.27bpw-Q3_PLE-M64-00020-of-00033.gguf",
+      "bytes": 1830961088,
+      "sha256": "0915e48d25f89cf6e017399779ca8e44009cc02f0daa15c05164ffd1a7c2b2e6"
+    },
+    {
+      "number": 21,
+      "filename": "Qwen3.8-Flash-Next-AD-4.27bpw-Q3_PLE-M64-00021-of-00033.gguf",
+      "bytes": 1915366080,
+      "sha256": "10a46c6df55a84e06a3bc1106888097dd55ad8bbe898a7594328b36a9ca67936"
+    },
+    {
+      "number": 22,
+      "filename": "Qwen3.8-Flash-Next-AD-4.27bpw-Q3_PLE-M64-00022-of-00033.gguf",
+      "bytes": 1711956000,
+      "sha256": "2abc0aabdf7ac0cc0caf09781c1acf7da3d2b41c3f7528e0769524d34a74e634"
+    },
+    {
+      "number": 23,
+      "filename": "Qwen3.8-Flash-Next-AD-4.27bpw-Q3_PLE-M64-00023-of-00033.gguf",
+      "bytes": 1844820928,
+      "sha256": "401ec5e1fd2f68ff9290e94058940934ed96a52ffbdd07bd0b7266b94c7b98ad"
+    },
+    {
+      "number": 24,
+      "filename": "Qwen3.8-Flash-Next-AD-4.27bpw-Q3_PLE-M64-00024-of-00033.gguf",
+      "bytes": 1923724224,
+      "sha256": "af178c3365f45665612a934a456873f6bea27d0689b8ff4e29671edaf2b265b2"
+    },
+    {
+      "number": 25,
+      "filename": "Qwen3.8-Flash-Next-AD-4.27bpw-Q3_PLE-M64-00025-of-00033.gguf",
+      "bytes": 1703597888,
+      "sha256": "802278a3c35065c02b3831dba504aa273d7a12ac1aa66c5fb85ce02a02094b61"
+    },
+    {
+      "number": 26,
+      "filename": "Qwen3.8-Flash-Next-AD-4.27bpw-Q3_PLE-M64-00026-of-00033.gguf",
+      "bytes": 1844820928,
+      "sha256": "fe109e8283605340109651d83550848c7519c762770866f5e64165e723f0f19b"
+    },
+    {
+      "number": 27,
+      "filename": "Qwen3.8-Flash-Next-AD-4.27bpw-Q3_PLE-M64-00027-of-00033.gguf",
+      "bytes": 1909864352,
+      "sha256": "548534b931c4ccd7e44891c69c2968201cc4160574fa55116c4e913ec4a903f3"
+    },
+    {
+      "number": 28,
+      "filename": "Qwen3.8-Flash-Next-AD-4.27bpw-Q3_PLE-M64-00028-of-00033.gguf",
+      "bytes": 1646472000,
+      "sha256": "ae59cd059a58008157d1e701f23b5d81bd6ecac2c9e59e8fe08e483b7188d237"
+    },
+    {
+      "number": 29,
+      "filename": "Qwen3.8-Flash-Next-AD-4.27bpw-Q3_PLE-M64-00029-of-00033.gguf",
+      "bytes": 1725375264,
+      "sha256": "709ec7a7ca3613bcf9dae1f338127b2eae21a31332a932a043e473c76511a8cf"
+    },
+    {
+      "number": 30,
+      "filename": "Qwen3.8-Flash-Next-AD-4.27bpw-Q3_PLE-M64-00030-of-00033.gguf",
+      "bytes": 1738770080,
+      "sha256": "70dda44ad5291a817c07d292f6ea6fd84e01027bd60485b11f03608e4cc34210"
+    },
+    {
+      "number": 31,
+      "filename": "Qwen3.8-Flash-Next-AD-4.27bpw-Q3_PLE-M64-00031-of-00033.gguf",
+      "bytes": 1646472000,
+      "sha256": "79f48ae481b248635afae0000f3587ddab6e562c0f8c55e82d52ef9ff5baa5c3"
+    },
+    {
+      "number": 32,
+      "filename": "Qwen3.8-Flash-Next-AD-4.27bpw-Q3_PLE-M64-00032-of-00033.gguf",
+      "bytes": 1725375264,
+      "sha256": "6b2a2db9c4cc35cbc0edae26c5e6a65a4eb5554b1abb0cd20fb20e5d89eaa56d"
+    },
+    {
+      "number": 33,
+      "filename": "Qwen3.8-Flash-Next-AD-4.27bpw-Q3_PLE-M64-00033-of-00033.gguf",
+      "bytes": 1220605344,
+      "sha256": "09fdbd5c57f32d8b30b6e9fe70873698678c455d14e3b331fc26e5cb74b7966a"
+    }
+  ]
+}

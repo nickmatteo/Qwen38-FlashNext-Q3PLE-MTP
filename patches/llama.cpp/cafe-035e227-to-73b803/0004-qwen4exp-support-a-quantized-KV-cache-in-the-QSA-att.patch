@@ -1,0 +1,48 @@
+From 0ac4b18025c2e255dd76252cd3b465683d08b257 Mon Sep 17 00:00:00 2001
+From: danielhanchen <unslothshared@gmail.com>
+Date: Wed, 26 Aug 2026 16:13:21 +0000
+Subject: [PATCH 04/36] qwen4exp: support a quantized KV cache in the QSA
+ attention path
+
+(cherry picked from commit 4c30574f81dc1115d08078c47b6cf8c789c0a842)
+---
+ src/models/qwen4exp.cpp | 16 +++++++++++++++-
+ 1 file changed, 15 insertions(+), 1 deletion(-)
+
+diff --git a/src/models/qwen4exp.cpp b/src/models/qwen4exp.cpp
+index bac689e24..40df2ce4f 100644
+--- a/src/models/qwen4exp.cpp
++++ b/src/models/qwen4exp.cpp
+@@ -520,7 +520,16 @@ ggml_tensor * llama_model_qwen4exp::graph::build_attn_qsa(
+         ggml_tensor *             top_k,
+         float                     kq_scale,
+         int                       il) {
+-    GGML_ASSERT(inp->self_k_rot == nullptr && inp->self_v_rot == nullptr);
++    // rotate q/k/v before they reach a quantized cache, as the dense path does. the indexer
++    // has already scored with its own query in build_qsa_top_k, so top_k is unaffected.
++    if (inp->self_k_rot) {
++        q_cur = llama_mul_mat_hadamard(ctx0, q_cur, inp->self_k_rot);
++        k_cur = llama_mul_mat_hadamard(ctx0, k_cur, inp->self_k_rot);
++    }
++
++    if (inp->self_v_rot) {
++        v_cur = llama_mul_mat_hadamard(ctx0, v_cur, inp->self_v_rot);
++    }
+ 
+     // these nodes are added to the graph together so that they are not reordered
+     // by doing so, the number of splits in the graph is reduced
+@@ -575,6 +584,11 @@ ggml_tensor * llama_model_qwen4exp::graph::build_attn_qsa(
+     ggml_tensor * cur = build_attn_mha(q, k, v, nullptr, kq_mask_top_k, nullptr, nullptr, kq_scale, il);
+     cb(cur, "kqv_out", il);
+ 
++    // the rotation is its own inverse, so undo it on the value side of the output
++    if (inp->self_v_rot) {
++        cur = llama_mul_mat_hadamard(ctx0, cur, inp->self_v_rot);
++    }
++
+     return cur;
+ }
+ 
+-- 
+2.40.0.windows.1
+

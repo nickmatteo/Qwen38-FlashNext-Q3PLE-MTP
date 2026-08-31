@@ -1,0 +1,4 @@
+{"id":"ctx8k_v1","target_prompt_tokens":8192,"needle_key":"Q38_CTX_8K","needle_value":"cedar-8219","needle_position_fraction":0.05,"required_answer":"cedar-8219"}
+{"id":"ctx16k_v1","target_prompt_tokens":16384,"needle_key":"Q38_CTX_16K","needle_value":"quartz-16381","needle_position_fraction":0.05,"required_answer":"quartz-16381"}
+{"id":"ctx32k_v1","target_prompt_tokens":32768,"needle_key":"Q38_CTX_32K","needle_value":"harbor-32749","needle_position_fraction":0.05,"required_answer":"harbor-32749"}
+{"id":"ctx64k_v1","target_prompt_tokens":65536,"needle_key":"Q38_CTX_64K","needle_value":"willow-65521","needle_position_fraction":0.05,"required_answer":"willow-65521"}

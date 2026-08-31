@@ -1,0 +1,32 @@
+From 6c5afc86ae84448ae4d744e357017e2c490ad9c3 Mon Sep 17 00:00:00 2001
+From: danielhanchen <unslothshared@gmail.com>
+Date: Thu, 27 Aug 2026 03:47:07 +0000
+Subject: [PATCH 13/36] qwen4exp: double the Q split granularity for tensor
+ parallelism
+
+qwen4exp fuses the attention gate into attn_q.weight the same way qwen3next
+and qwen 3.5 do, so a device boundary must fall on a whole q+gate pair or the
+Q heads stop lining up with the K/V heads and attn_output rows.
+
+(cherry picked from commit 6c9a592f0a425a459ab6efae3b897cf68460e244)
+---
+ src/llama-model.cpp | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/src/llama-model.cpp b/src/llama-model.cpp
+index 078ef9f81..a926d3243 100644
+--- a/src/llama-model.cpp
++++ b/src/llama-model.cpp
+@@ -724,7 +724,8 @@ struct ggml_backend_meta_split_state llama_meta_device_get_split_state(const str
+             if (std::regex_match(tensor_name, pattern_q_weight) || std::regex_match(tensor_name, pattern_q_bias)) {
+                 GGML_ASSERT(segments.size() == 1);
+                 // some models have Q gate tensors, for those cases the granularity needs to be doubled:
+-                if (ud->model->arch == LLM_ARCH_QWEN3NEXT || ud->model->arch == LLM_ARCH_QWEN35 || ud->model->arch == LLM_ARCH_QWEN35MOE) {
++                if (ud->model->arch == LLM_ARCH_QWEN3NEXT || ud->model->arch == LLM_ARCH_QWEN35 || ud->model->arch == LLM_ARCH_QWEN35MOE ||
++                        ud->model->arch == LLM_ARCH_QWEN4EXP) {
+                     return {std::lcm(2*n_embd_q, blck_size_perf)};
+                 }
+                 return {granularity_q};
+-- 
+2.40.0.windows.1
+

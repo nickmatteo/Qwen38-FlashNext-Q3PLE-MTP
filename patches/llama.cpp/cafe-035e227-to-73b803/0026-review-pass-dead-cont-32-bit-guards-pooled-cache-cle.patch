@@ -1,0 +1,139 @@
+From 843d5750579a15ed4a42d73eb862855c271021ac Mon Sep 17 00:00:00 2001
+From: Joakim Hansson <joakim.hansson87@gmail.com>
+Date: Fri, 28 Aug 2026 17:36:40 +0000
+Subject: [PATCH 26/36] review pass: dead cont, 32-bit guards, pooled-cache
+ cleanups
+
+Full-branch review findings:
+- the indexer scoring cont'ed q before reshaping, but q is a fresh rope
+  output and always contiguous - dead copy (12 launches per decode token,
+  ~48MB per prefill chunk)
+- the REPEAT+MUL+ADD fusion and the radix top-k index with 32-bit
+  arithmetic; reject tensors past UINT32_MAX elements in detection /
+  supports_op so oversized cases fall back safely (defensive - no
+  current model hits this)
+- pooled cache: cache the compress ratio at construction instead of
+  re-deriving it per seq_rm, and document the set_input -> successful
+  compute assumption the watermark shares with the recurrent states
+
+Greedy output identical. pp32000 338 t/s / tg 24.0 at 32k.
+
+Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01AUwCGmqs39JdaEFjBmtvDa
+---
+ ggml/src/ggml-vulkan/ggml-vulkan.cpp | 14 +++++++++++---
+ src/llama-memory-hybrid-idx.cpp      | 15 +++++++--------
+ src/llama-memory-hybrid-idx.h        |  3 ++-
+ src/models/qwen4exp.cpp              |  3 ++-
+ 4 files changed, 22 insertions(+), 13 deletions(-)
+
+diff --git a/ggml/src/ggml-vulkan/ggml-vulkan.cpp b/ggml/src/ggml-vulkan/ggml-vulkan.cpp
+index 0f9c2732c..8b321244e 100644
+--- a/ggml/src/ggml-vulkan/ggml-vulkan.cpp
++++ b/ggml/src/ggml-vulkan/ggml-vulkan.cpp
+@@ -13847,7 +13847,9 @@ static void ggml_vk_topk(ggml_backend_vk_context * ctx, vk_context& subctx, cons
+     vk_op_topk_push_constants pc { ncols, ncols, ncols, k, nrows, 0, 0 };
+ 
+     // k beyond the shared-memory shaders: single-dispatch radix selection, one
+-    // workgroup per row, indices in no particular order (the ggml_top_k contract)
++    // workgroup per row, indices in no particular order (the ggml_top_k contract).
++    // The shader indexes with 32-bit arithmetic; supports_op enforces the same bound.
++    GGML_ASSERT((uint64_t) nrows * ncols <= UINT32_MAX && (uint64_t) nrows * k <= UINT32_MAX);
+     if (k > (1u << (num_topk_pipelines - 1)) ||
+         ctx->device->pipeline_topk_f32[(uint32_t)log2f(float(k)) + 1] == nullptr) {
+         vk_pipeline pipeline = ctx->device->pipeline_topk_radix_f32;
+@@ -17180,6 +17182,10 @@ static bool ggml_vk_can_fuse_mul_bcast_add(ggml_backend_vk_context * ctx, const
+     if (!ggml_can_repeat(a, add) || !ggml_can_repeat(w, add)) {
+         return false;
+     }
++    // the shader indexes with 32-bit arithmetic
++    if (ggml_nelements(add) > (int64_t) UINT32_MAX) {
++        return false;
++    }
+     // anything interleaved in the span must be an empty view op
+     for (int i = node_idx + 1; i < add_idx; ++i) {
+         if (i == mul_idx) {
+@@ -18808,8 +18814,10 @@ static bool ggml_backend_vk_device_supports_op(ggml_backend_dev_t dev, const ggm
+                 uint32_t min_pipeline = (uint32_t)log2f(float(op->ne[0])) + 1;
+                 if (min_pipeline >= num_topk_pipelines ||
+                     !device->pipeline_topk_f32[min_pipeline]) {
+-                    // k beyond the shared-memory shaders runs the radix selection path
+-                    return true;
++                    // k beyond the shared-memory shaders runs the radix selection path,
++                    // which indexes with 32-bit arithmetic
++                    return (uint64_t) ggml_nrows(op->src[0]) * op->src[0]->ne[0] <= UINT32_MAX &&
++                           (uint64_t) ggml_nrows(op->src[0]) * op->ne[0]    <= UINT32_MAX;
+                 }
+             }
+             return true;
+diff --git a/src/llama-memory-hybrid-idx.cpp b/src/llama-memory-hybrid-idx.cpp
+index 0b23c32c1..f61ad108f 100644
+--- a/src/llama-memory-hybrid-idx.cpp
++++ b/src/llama-memory-hybrid-idx.cpp
+@@ -80,7 +80,8 @@ llama_memory_hybrid_idx::llama_memory_hybrid_idx(
+ 
+         if (ratio > 0 && idx_dim > 0) {
+             // + 1 so a partial trailing block has a slot, + 1 dustbin row for padded writes
+-            pooled_rows = kv_size/ratio + 2;
++            pooled_rows  = kv_size/ratio + 2;
++            pooled_ratio = ratio;
+ 
+             ggml_init_params ip = {
+                 /*.mem_size   =*/ 2*model.hparams.n_layer()*ggml_tensor_overhead(),
+@@ -141,13 +142,7 @@ void llama_memory_hybrid_idx::pooled_rm(llama_seq_id seq_id, llama_pos p0, llama
+     }
+     // blocks at or beyond the first removed position lose members; earlier rows keep their
+     // content (removals only ever drop the tail or a middle range, never rewrite the prefix)
+-    uint32_t ratio = 0;
+-    for (const auto & [il, t] : pooled_k) {
+-        GGML_UNUSED(t);
+-        ratio = hparams_idx.dsv4_compress_ratios[il];
+-        break;
+-    }
+-    const int64_t blk = ratio > 0 ? std::max<llama_pos>(p0, 0)/ratio : 0;
++    const int64_t blk = pooled_ratio > 0 ? std::max<llama_pos>(p0, 0)/pooled_ratio : 0;
+ 
+     auto & w = pooled_w[seq_id];
+     w = std::min(w, blk);
+@@ -842,6 +837,10 @@ void llama_memory_hybrid_idx_context::set_input_qsa(
+         }
+ 
+         // [TAG_QSA_POOLED_CACHE] resolve which blocks the graph must (re)pool this ubatch:
++        // note: the watermark advances here, before the compute runs. A failed-and-retried
++        // compute would skip the range on the retry; that class of failure already corrupts
++        // the recurrent states (written during compute), so the whole architecture assumes
++        // set_input -> successful compute, and this bookkeeping shares that assumption.
+         // the range from the sequence's watermark to its last complete block. Complete
+         // blocks are immutable, so rows below the watermark stay valid; rollbacks arrive
+         // as seq_rm/state_read, which clamp the watermark before this runs.
+diff --git a/src/llama-memory-hybrid-idx.h b/src/llama-memory-hybrid-idx.h
+index 32edf23fa..1570bbace 100644
+--- a/src/llama-memory-hybrid-idx.h
++++ b/src/llama-memory-hybrid-idx.h
+@@ -144,7 +144,8 @@ private:
+     ggml_backend_buffer_ptr pooled_buf;
+     std::map<int32_t, ggml_tensor *> pooled_k;
+ 
+-    uint32_t pooled_rows = 0;
++    uint32_t pooled_rows  = 0;
++    uint32_t pooled_ratio = 0;
+ 
+     mutable std::unordered_map<llama_seq_id, int64_t> pooled_w;
+ 
+diff --git a/src/models/qwen4exp.cpp b/src/models/qwen4exp.cpp
+index 30699f096..bf404771a 100644
+--- a/src/models/qwen4exp.cpp
++++ b/src/models/qwen4exp.cpp
+@@ -936,7 +936,8 @@ ggml_tensor * llama_model_qwen4exp::graph::build_qsa_top_k(
+ 
+     // rectify each head dot product before the sum, as in the DeepSeek lightning indexer
+     // mul_mat matches ne[2], so the queries of stream s only meet the blocks of stream s
+-    ggml_tensor * q_flat = ggml_reshape_3d(ctx0, ggml_cont(ctx0, q), idx_dim, n_idx_h*n_tps, n_stream);
++    // q is a fresh rope output and always contiguous; reshape asserts if that ever changes
++    ggml_tensor * q_flat = ggml_reshape_3d(ctx0, q, idx_dim, n_idx_h*n_tps, n_stream);
+ 
+     ggml_tensor * expanded;
+     if (n_tps > 8) {
+-- 
+2.40.0.windows.1
+

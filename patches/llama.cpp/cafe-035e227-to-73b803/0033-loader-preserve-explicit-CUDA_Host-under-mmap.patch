@@ -1,0 +1,60 @@
+From 9260dca629629822621d760e7d65db1ae97087fa Mon Sep 17 00:00:00 2001
+From: Your Name <you@example.com>
+Date: Sun, 30 Aug 2026 02:28:36 -0400
+Subject: [PATCH 33/36] loader: preserve explicit CUDA_Host under mmap
+
+---
+ common/common.h            | 1 +
+ src/llama-model-loader.cpp | 9 +++++++--
+ 2 files changed, 8 insertions(+), 2 deletions(-)
+
+diff --git a/common/common.h b/common/common.h
+index 0c248df01..5fd8a1dad 100644
+--- a/common/common.h
++++ b/common/common.h
+@@ -14,6 +14,7 @@
+ #include <string_view>
+ #include <vector>
+ #include <map>
++#include <list>
+ #include <algorithm>
+ #include <fstream>
+ 
+diff --git a/src/llama-model-loader.cpp b/src/llama-model-loader.cpp
+index 201176edb..541ea658d 100644
+--- a/src/llama-model-loader.cpp
++++ b/src/llama-model-loader.cpp
+@@ -1178,6 +1178,7 @@ struct ggml_tensor * llama_model_loader::create_tensor(
+         }
+ 
+         ggml_backend_buffer_type_t buft = nullptr;
++        bool keep_explicit_host_with_mmap = false;
+ 
+         // check overrides
+         if (tensor_buft_overrides) {
+@@ -1196,6 +1197,9 @@ struct ggml_tensor * llama_model_loader::create_tensor(
+                         }
+                     } else {
+                         buft = overrides->buft;
++                        auto * override_dev = ggml_backend_buft_get_device(buft);
++                        keep_explicit_host_with_mmap = override_dev &&
++                            buft == ggml_backend_dev_host_buffer_type(override_dev);
+                     }
+ 
+                     LLAMA_LOG_DEBUG("tensor %s (%zu MiB %s) buffer type overridden to %s\n",
+@@ -1214,9 +1218,10 @@ struct ggml_tensor * llama_model_loader::create_tensor(
+             }
+         }
+ 
+-        // avoid using a host buffer when using mmap
++        // Automatic host buffers are demoted under mmap, but an explicit CUDA_Host override
++        // is intentional: allocate it and copy that tensor while lazy tensors remain mapped.
+         auto * buft_dev = ggml_backend_buft_get_device(buft);
+-        if (use_mmap && buft_dev && buft == ggml_backend_dev_host_buffer_type(buft_dev)) {
++        if (use_mmap && buft_dev && buft == ggml_backend_dev_host_buffer_type(buft_dev) && !keep_explicit_host_with_mmap) {
+             auto * cpu_dev = ggml_backend_dev_by_type(GGML_BACKEND_DEVICE_TYPE_CPU);
+             if (!cpu_dev) {
+                 throw std::runtime_error("no CPU backend found");
+-- 
+2.40.0.windows.1
+

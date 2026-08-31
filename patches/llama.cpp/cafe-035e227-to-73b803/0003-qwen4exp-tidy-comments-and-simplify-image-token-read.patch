@@ -1,0 +1,1028 @@
+From d4a943f9a521dc2f50e401b7565f8dc5abe3b568 Mon Sep 17 00:00:00 2001
+From: danielhanchen <unslothshared@gmail.com>
+Date: Wed, 26 Aug 2026 15:46:37 +0000
+Subject: [PATCH 03/36] qwen4exp: tidy comments and simplify image token read
+
+Rewrite the comments this series adds to the AGENTS.md rules: one or two lines,
+no prose hard-wrapped mid-sentence, no narrative or history, and no comment that
+only restates the code. Net 146 fewer comment lines, no code change.
+
+Correct the PLE image comment: mtmd does not consume the placeholder ids. An
+image is decoded as an embeddings-only batch, so ubatch->token is null and the
+per-position ids never exist here. gemma3n and gemma4 hit the same case and
+stand in row 0 of per_layer_token_embd; qwen4exp stands in the configured image
+token id instead.
+
+Read image_token_id straight from self.hparams in the converter. base.py merges
+text_config into the root of hparams, and the key sits at the root of
+config.json, so the config.json re-read was redundant.
+
+(cherry picked from commit 205840c12169057da3e8d2f65ec4ceec3e18b980)
+---
+ conversion/qwen4exp.py          |  37 ++------
+ src/llama-hparams.cpp           |   5 +-
+ src/llama-hparams.h             |   3 +-
+ src/llama-memory-hybrid-idx.cpp | 102 +++++++-------------
+ src/llama-memory-hybrid-idx.h   |  67 +++++--------
+ src/llama-model.cpp             |   7 +-
+ src/llama-quant.cpp             |  21 ++--
+ src/models/models.h             |   7 +-
+ src/models/qwen4exp.cpp         | 163 +++++++++-----------------------
+ 9 files changed, 128 insertions(+), 284 deletions(-)
+
+diff --git a/conversion/qwen4exp.py b/conversion/qwen4exp.py
+index 2a67c7701..38f2eaa4b 100644
+--- a/conversion/qwen4exp.py
++++ b/conversion/qwen4exp.py
+@@ -1,6 +1,5 @@
+ from __future__ import annotations
+ 
+-import json
+ from typing import Iterable
+ 
+ import torch
+@@ -82,9 +81,8 @@ class Qwen4ExpTextModel(_Qwen35MRopeMixin, _LinearAttentionVReorderBase):
+         self.gguf_writer.add_ple_heads_per_ngram(hp["heads_per_ngram"])
+         self.gguf_writer.add_ple_conv_kernel(hp["ple_conv_kernel_size"])
+         self.gguf_writer.add_ple_eos_token_id(self._eos_token_id())
+-        # The PLE hash runs over token ids, but a multimodal batch arrives as embeddings
+-        # with the placeholder consumed. Carry it so those positions hash what the
+-        # reference sees in input_ids instead of being undefined.
++        # an image is decoded as an embeddings-only batch, so the graph has no placeholder
++        # ids to hash; carry the id and let it stand in for those positions
+         _img = self._image_token_id()
+         if _img is not None:
+             self.gguf_writer.add_ple_image_token_id(int(_img))
+@@ -99,16 +97,8 @@ class Qwen4ExpTextModel(_Qwen35MRopeMixin, _LinearAttentionVReorderBase):
+             self._read_hash_constants("ple_embedding.ngram_heads_vocab_sizes"))
+ 
+     def _image_token_id(self) -> int | None:
+-        # image_token_id is top-level in config.json, not in self.hparams once that is
+-        # narrowed to text_config, and the text model has no global_config; read the file
++        # base.py merges text_config into the root of hparams, where image_token_id already is
+         img = self.hparams.get("image_token_id")
+-        if img is not None:
+-            return int(img)
+-        try:
+-            with open(self.dir_model / "config.json", "r", encoding="utf-8") as f:
+-                img = json.load(f).get("image_token_id")
+-        except Exception:
+-            return None
+         return None if img is None else int(img)
+ 
+     def _eos_token_id(self) -> int:
+@@ -155,16 +145,10 @@ class Qwen4ExpTextModel(_Qwen35MRopeMixin, _LinearAttentionVReorderBase):
+ 
+     # -- the PLE table ----------------------------------------------------
+     #
+-    # 128 shards concatenate into one enormous tensor. Holding them all and then
+-    # torch.cat-ing peaks near 300 GB of RSS, which most machines that can
+-    # otherwise convert this model do not have. Each shard is instead written
+-    # straight into a memory-mapped file at its final row offset and dropped, so
+-    # the peak is one shard and the rest is the page cache's problem. The trade
+-    # is a temporary file beside the output, removed when the write finishes.
+-    #
+-    # The file holds float32 because that is what base.py has already cast the
+-    # shards to by the time modify_tensors sees them, and what it calls .numpy()
+-    # on afterwards.
++    # The 128 shards concatenate into one enormous tensor, which peaks near 300 GB of RSS.
++    # Each shard is written straight into a memory-mapped file at its final row offset and
++    # then dropped, so only one shard is resident. The file is removed after the write.
++    # It holds float32 because base.py has already cast the shards to it.
+ 
+     def _place_ple_shard(self, data_torch: Tensor, name: str) -> Iterable[tuple[str, Tensor]]:
+ 
+@@ -177,8 +161,8 @@ class Qwen4ExpTextModel(_Qwen35MRopeMixin, _LinearAttentionVReorderBase):
+ 
+         if self._ple_map is None:
+             if idx == n_parts - 1 and n_parts > 1:
+-                # the last shard may be short, so it cannot set the stride. This
+-                # only happens if the checkpoint yields shards out of order
++                # the last shard can be short, so it cannot set the stride
++                # this happens only if the checkpoint yields the shards out of order
+                 self._ple_pending[idx] = data_torch
+                 return []
+             self._ple_rows_per_shard = rows
+@@ -211,8 +195,7 @@ class Qwen4ExpTextModel(_Qwen35MRopeMixin, _LinearAttentionVReorderBase):
+             )
+ 
+         start = idx * self._ple_rows_per_shard
+-        # the shard is still lazy here; force it, since the point of this path
+-        # is that exactly one shard is resident at a time
++        # the shard is still lazy here; force it, so exactly one shard is resident
+         from .base import LazyTorchTensor
+ 
+         eager = LazyTorchTensor.to_eager(shard).to(torch.float32).contiguous()
+diff --git a/src/llama-hparams.cpp b/src/llama-hparams.cpp
+index 14f80436d..a7d3106c0 100644
+--- a/src/llama-hparams.cpp
++++ b/src/llama-hparams.cpp
+@@ -203,9 +203,8 @@ uint32_t llama_hparams::n_embd_r() const {
+     // Corresponds to Mamba's conv_states size
+     const uint32_t n_conv = (ssm_d_conv > 0 ? ssm_d_conv - 1 : 0) * (ssm_d_inner + 2*ssm_n_group*ssm_d_state);
+ 
+-    // qwen4exp puts a PLE module on a delta-net layer, so the row carries a second
+-    // dilated conv state. Rows are uniform, so every recurrent layer reserves it;
+-    // ple_n_heads is 0 elsewhere, leaving n_conv alone.
++    // qwen4exp puts a PLE module on a delta-net layer, so the row holds a second dilated conv
++    // state; the rows are uniform, so every recurrent layer reserves it
+     return n_conv + ple_conv_state();
+ }
+ 
+diff --git a/src/llama-hparams.h b/src/llama-hparams.h
+index a3e30754b..d829d034c 100644
+--- a/src/llama-hparams.h
++++ b/src/llama-hparams.h
+@@ -281,8 +281,7 @@ struct llama_hparams {
+     uint32_t ple_n_heads         = 0;   // (ngram_size - 1) * heads_per_ngram
+     uint32_t ple_head_dim        = 0;
+     uint32_t ple_eos_token_id    = 0;
+-    // placeholder the PLE hash sees where an image chunk is spliced in; 0 means the
+-    // file predates this key and the loader falls back to EOS
++    // the id the PLE hash stands in at image positions; 0 makes the loader fall back to EOS
+     uint32_t ple_image_token_id  = 0;
+     std::array<uint32_t, LLAMA_MAX_LAYERS> is_ple_impl;
+     std::array<uint64_t, LLAMA_MAX_PLE_NGRAM>  ple_layer_multipliers;
+diff --git a/src/llama-memory-hybrid-idx.cpp b/src/llama-memory-hybrid-idx.cpp
+index 386828178..6316ab7cf 100644
+--- a/src/llama-memory-hybrid-idx.cpp
++++ b/src/llama-memory-hybrid-idx.cpp
+@@ -59,9 +59,8 @@ llama_memory_hybrid_idx::llama_memory_hybrid_idx(
+     }()) {}
+ 
+ llama_memory_context_ptr llama_memory_hybrid_idx::init_batch(llama_batch_allocr & balloc, uint32_t n_ubatch, bool embd_all) {
+-    // note: this repeats llama_memory_hybrid::init_batch because the indexer cache has to be
+-    //       handed the attention cache's slot infos, and those are not reachable through the
+-    //       llama_memory_hybrid_context that the base implementation returns
++    // note: this repeats llama_memory_hybrid::init_batch because the indexer cache needs the
++    //       slot infos of the attention cache, which the base context does not expose
+     do {
+         balloc.split_reset();
+ 
+@@ -112,10 +111,8 @@ llama_memory_context_ptr llama_memory_hybrid_idx::init_batch(llama_batch_allocr
+             return std::make_unique<llama_memory_hybrid_idx_context>(LLAMA_MEMORY_STATUS_FAILED_PREPARE);
+         }
+ 
+-        // The indexer cache is a side buffer addressed by the attention cache's cells, so it
+-        // takes that slot layout rather than finding its own. Allocating separately let the
+-        // two drift once context was rewritten between turns, pointing QSA top-k at the
+-        // wrong cells.
++        // the indexer cache is addressed by the cells of the attention cache, so it takes that
++        // slot layout instead of finding its own; a separate layout can drift from it
+         llama_kv_cache::slot_info_vec_t heads_idx;
+         if (mem_idx) {
+             heads_idx = heads_attn;
+@@ -148,8 +145,8 @@ void llama_memory_hybrid_idx::clear(bool data) {
+ }
+ 
+ bool llama_memory_hybrid_idx::seq_rm(llama_seq_id seq_id, llama_pos p0, llama_pos p1) {
+-    // same order as llama_memory_hybrid::seq_rm: try the recurrent cache first since it is the
+-    // one that may refuse, and if it does the caches are left untouched
++    // same order as llama_memory_hybrid::seq_rm: the recurrent cache can refuse, so try it
++    // first and leave the other caches untouched if it does
+     if (!get_mem_recr()->seq_rm(seq_id, p0, p1)) {
+         return false;
+     }
+@@ -218,13 +215,9 @@ std::map<ggml_backend_buffer_type_t, size_t> llama_memory_hybrid_idx::memory_bre
+ //
+ // [TAG_PLE_HISTORY] per-sequence PLE n-gram history
+ //
+-// The window is only meaningful while it is contiguous with the position the sequence is
+-// about to decode, so every operation below either rewrites it exactly or invalidates it.
+-// Invalidating means next_pos = -1, which set_input turns into full EOS padding - the same
+-// thing a fresh sequence gets, and the same thing this code did before it followed the
+-// sequence operations at all. It is therefore never worse than the previous behaviour, and
+-// it is exact in the cases that matter (a rewind to a prefix, a copied sequence, a context
+-// shift).
++// The window is only usable while it is contiguous with the position the sequence decodes next,
++// so each operation below either rewrites it exactly or invalidates it with next_pos = -1.
++// An invalid window makes set_input pad with EOS, which is what a fresh sequence also gets.
+ //
+ 
+ llama_memory_hybrid_idx::ple_history & llama_memory_hybrid_idx::ple_hist_get(llama_seq_id seq_id) const {
+@@ -275,16 +268,15 @@ void llama_memory_hybrid_idx::ple_hist_rm(llama_seq_id seq_id, llama_pos p0, lla
+     }
+ 
+     if (p1 < 0) {
+-        // a rewind: the sequence now ends at p0 and the surviving prefix of the window is
+-        // still contiguous with it, which is the case a session rollback actually hits
++        // a rewind: the sequence ends at p0 and the remaining prefix is still contiguous
+         if (p0 < h.next_pos) {
+             ple_hist_truncate(h, p0);
+         }
+         return;
+     }
+ 
+-    // a hole punched somewhere in the middle. seq_rm does not renumber what follows, so a
+-    // window that overlaps the hole is no longer a run of consecutive positions
++    // a hole in the middle: seq_rm does not renumber what follows, so an overlapping
++    // window is no longer a run of consecutive positions
+     if (p1 > ple_hist_beg(h) && p0 < h.next_pos) {
+         ple_hist_invalidate(h);
+     }
+@@ -309,8 +301,8 @@ void llama_memory_hybrid_idx::ple_hist_cp(llama_seq_id seq_id_src, llama_seq_id
+         ple_hist_truncate(h, p1);
+     }
+ 
+-    // positions below p0 were not copied, so for the destination they are before the start
+-    // of the sequence, which the hash already reads as EOS
++    // positions below p0 were not copied, so for the destination they are before the
++    // sequence start, which the hash already reads as EOS
+     const llama_pos lo = p0 < 0 ? 0 : p0;
+     if (lo > ple_hist_beg(h)) {
+         const llama_pos drop = std::min<llama_pos>(lo - ple_hist_beg(h), (llama_pos) h.toks.size());
+@@ -352,8 +344,7 @@ void llama_memory_hybrid_idx::ple_hist_add(llama_seq_id seq_id, llama_pos p0, ll
+         return;
+     }
+     if (lo <= beg && (p1 < 0 || p1 >= h.next_pos)) {
+-        // the whole window moves as one, so it stays a run of consecutive positions.
+-        // this is the context-shift case
++        // the context-shift case: the whole window moves as one and stays consecutive
+         if (beg + shift < 0) {
+             ple_hist_invalidate(h);
+         } else {
+@@ -382,9 +373,7 @@ void llama_memory_hybrid_idx::ple_hist_div(llama_seq_id seq_id, llama_pos p0, ll
+ 
+     const llama_pos lo = p0 < 0 ? 0 : p0;
+ 
+-    // dividing positions makes them non-consecutive, so any overlap ends the window. no
+-    // caller in tree divides positions of an architecture that has a PLE table, but leaving
+-    // this out would silently keep a window whose positions no longer line up
++    // division makes the positions non-consecutive, so any overlap ends the window
+     if ((p1 < 0 || p1 > ple_hist_beg(h)) && lo < h.next_pos) {
+         ple_hist_invalidate(h);
+     }
+@@ -427,8 +416,8 @@ void llama_memory_hybrid_idx::ple_hist_state_read(llama_io_read_i & io, llama_se
+     uint32_t n_entries = 0;
+     io.read(&n_entries, sizeof(n_entries));
+ 
+-    // a single-sequence restore replaces only that sequence's window; a whole-context one
+-    // replaces the lot, matching what the caches around it do
++    // a single-sequence restore replaces one window, a whole-context one replaces them all,
++    // as the caches around it do
+     if (seq_id >= 0) {
+         ple_hist.erase(seq_id);
+     } else {
+@@ -444,8 +433,8 @@ void llama_memory_hybrid_idx::ple_hist_state_read(llama_io_read_i & io, llama_se
+         io.read(&next_pos, sizeof(next_pos));
+         io.read(&n_toks,   sizeof(n_toks));
+ 
+-        // the window is never longer than ple_ngram_size - 1; anything else is a corrupt or
+-        // mismatched blob, and reading it would size an allocation from the file
++        // the window is never longer than ple_ngram_size - 1, so a larger count is a corrupt
++        // blob and would size an allocation from the file
+         if (n_toks > 64) {
+             throw std::runtime_error("qwen4exp PLE history: implausible token count in state blob");
+         }
+@@ -455,8 +444,7 @@ void llama_memory_hybrid_idx::ple_hist_state_read(llama_io_read_i & io, llama_se
+             io.read(toks.data(), n_toks*sizeof(llama_token));
+         }
+ 
+-        // a single-sequence restore may target a different seq_id than the one it was saved
+-        // from, so the destination wins over the stored id
++        // a single-sequence restore can target a different seq_id, so the destination wins
+         const llama_seq_id dst = seq_id >= 0 ? seq_id : (llama_seq_id) id;
+ 
+         auto & h = ple_hist[dst];
+@@ -468,43 +456,27 @@ void llama_memory_hybrid_idx::ple_hist_state_read(llama_io_read_i & io, llama_se
+ void llama_memory_hybrid_idx::state_write(llama_io_write_i & io, llama_seq_id seq_id, llama_state_seq_flags flags) const {
+     llama_memory_hybrid::state_write(io, seq_id, flags);
+ 
+-    // [TAG_HYBRID_IDX_STATE]
+-    // the indexer cache is written last so that its payload is a pure suffix of the
+-    //   attn+recr layout every other hybrid model already produces. Placing it between
+-    //   the two would make a reader that does not expect it parse the indexer bytes as
+-    //   recurrent state, which can succeed and restore silent garbage; as a suffix, a
+-    //   reader that does not expect it just stops early and the trailing bytes are
+-    //   caught by the size check in llama_context::state_load_file.
+-    // the indexer mirrors the attention cache, so it follows the same PARTIAL_ONLY
+-    //   gate: a partial checkpoint deliberately skips the token-level attention caches.
++    // [TAG_HYBRID_IDX_STATE] the indexer section is written last, so it is a pure suffix of the
++    // attn+recr layout: a reader that does not expect it stops early instead of misparsing it.
++    // The indexer mirrors the attention cache, so it uses the same PARTIAL_ONLY gate.
+     if ((flags & LLAMA_STATE_SEQ_FLAGS_PARTIAL_ONLY) == 0) {
+         if (mem_idx) {
+             mem_idx->state_write(io, seq_id, flags);
+         }
+     }
+ 
+-    // [TAG_PLE_HISTORY]
+-    // last again, for the same reason the indexer section is: a pure suffix, so a reader
+-    //   that does not expect it stops early rather than parsing these bytes as something
+-    //   else. This is written after the indexer section because it is the newer of the two.
+-    // unlike the indexer this is NOT under the PARTIAL_ONLY gate. The n-gram window is
+-    //   recurrent state, not a token-level cache - it is the input the PLE convolution's
+-    //   own recurrent state is derived from - and the recurrent cache next to it is written
+-    //   for partial checkpoints too. Skipping it would leave the server's speculative
+-    //   decoding checkpoints restoring the conv state without the window that produced it.
++    // [TAG_PLE_HISTORY] last again, so this section is also a pure suffix.
++    // It is not under the PARTIAL_ONLY gate: the window is recurrent state, the input the PLE
++    // conv state comes from, and the recurrent cache is written for partial checkpoints too.
+     ple_hist_state_write(io, seq_id);
+ }
+ 
+ void llama_memory_hybrid_idx::state_read(llama_io_read_i & io, llama_seq_id seq_id, llama_state_seq_flags flags) {
+     llama_memory_hybrid::state_read(io, seq_id, flags);
+ 
+-    // [TAG_HYBRID_IDX_STATE]
+-    // must mirror the write order above.
+-    // the indexer restores its own cells rather than being handed the attention
+-    //   cache's restored slots, which is safe because the two caches are kept in
+-    //   lockstep - same size, same n_pad, same seq_* operations, and init_batch hands
+-    //   the indexer the attention cache's slot infos - so both state_read_meta calls
+-    //   run find_slot over identical occupancy and land on identical cells.
++    // [TAG_HYBRID_IDX_STATE] must mirror the write order above.
++    // The indexer finds its own cells, which is safe because the two caches stay in lockstep:
++    // both state_read_meta calls run find_slot over the same occupancy and land on the same cells.
+     if ((flags & LLAMA_STATE_SEQ_FLAGS_PARTIAL_ONLY) == 0) {
+         if (mem_idx) {
+             mem_idx->state_read(io, seq_id, flags);
+@@ -623,8 +595,8 @@ void llama_memory_hybrid_idx_context::set_input_qsa(
+     int32_t * dst_blk_pos   = (int32_t *) blk_pos->data;
+     float   * dst_bias      = (float   *) bias->data;
+ 
+-    // block b covers [b*ratio, (b+1)*ratio), so its first token is at b*ratio. All three
+-    // mrope sections carry it: exact for text, approximate for images. Positions repeat per stream.
++    // block b covers [b*ratio, (b+1)*ratio), so its first token is at b*ratio
++    // all mrope sections carry it: exact for text, approximate for images
+     for (int64_t sec = 0; sec < 4; ++sec) {
+         for (int64_t s = 0; s < n_ns; ++s) {
+             for (int64_t b = 0; b < n_blocks; ++b) {
+@@ -633,8 +605,7 @@ void llama_memory_hybrid_idx_context::set_input_qsa(
+         }
+     }
+ 
+-    // One pass per stream: cell j is a different token in each, so no mapping is shared.
+-    // n_ns == 1 is the single-stream behaviour this replaced.
++    // one pass per stream: cell j is a different token in each, so no mapping is shared
+     std::vector<int32_t> blk_of(n_kv);
+     std::vector<int32_t> filled(n_blocks);
+ 
+@@ -646,8 +617,8 @@ void llama_memory_hybrid_idx_context::set_input_qsa(
+         int32_t * cur_cell_blk  = dst_cell_blk  + s*n_kv;
+         int32_t * cur_blk_cells = dst_blk_cells + s*(r*n_blocks);
+ 
+-        // an incomplete block cannot be pooled: those tail cells are forced in by the bias
+-        // below, so block 0 only keeps the gather in range. -1 = no usable block.
++        // an incomplete block cannot be pooled; the bias below forces those tail cells in
++        // -1 means no usable block, and block 0 only keeps the gather in range
+         std::fill(blk_of.begin(),  blk_of.end(),  -1);
+         std::fill(filled.begin(),  filled.end(),   0);
+         std::fill(cur_blk_cells, cur_blk_cells + r*n_blocks, 0);
+@@ -681,8 +652,7 @@ void llama_memory_hybrid_idx_context::set_input_qsa(
+             const llama_seq_id seq_id = ubatch->seq_id[i][0];
+             const llama_pos    q      = ubatch->pos[i];
+ 
+-            // the rest is an incomplete block, always attended to, which is what lands the
+-            // selection on block boundaries like the reference
++            // the tail is an incomplete block and is always visible, as in the reference
+             const llama_pos tail_start = (q + 1)/r*r;
+ 
+             float * cur_bias = dst_bias + i*n_kv;
+diff --git a/src/llama-memory-hybrid-idx.h b/src/llama-memory-hybrid-idx.h
+index 4f93a95d0..a17e18420 100644
+--- a/src/llama-memory-hybrid-idx.h
++++ b/src/llama-memory-hybrid-idx.h
+@@ -10,19 +10,10 @@
+ // llama_memory_hybrid_idx
+ //
+ 
+-// llama_memory_hybrid plus a third cache holding one indexer key per token, for hybrid
+-// architectures whose attention layers are block-sparse (qwen4exp QSA).
+-//
+-// this is a separate llama_memory type rather than an option on llama_memory_hybrid so that
+-// nothing in the hybrid path used by the other architectures changes. it duplicates
+-// llama_memory_hybrid::init_batch because the indexer cache must be given the attention
+-// cache's slot layout instead of finding its own, and that layout is not observable from
+-// outside the returned context.
+-//
+-// the indexer cache is a side buffer addressed by the attention cache's cells: same size,
+-// same padding, same stream count, same slots, so cell j means the same token in both.
+-// everything that depends on that layout is computed host-side in set_input_qsa; the model
+-// graph only gathers, pools and scores.
++// llama_memory_hybrid plus a third cache that holds one indexer key per token, for hybrid
++// architectures with block-sparse attention layers (qwen4exp QSA).
++// The indexer cache is a side buffer addressed by the cells of the attention cache: same
++// size, padding, stream count and slots, so cell j is the same token in both.
+ 
+ class llama_memory_hybrid_idx : public llama_memory_hybrid {
+ public:
+@@ -88,42 +79,30 @@ public:
+     llama_kv_cache * get_mem_idx() const;   // nullptr when the model carries no indexer
+ 
+     // [TAG_PLE_HISTORY]
+-    // The qwen4exp PLE hash of a token mixes in the ple_ngram_size - 1 tokens before it.
+-    // A decode ubatch does not carry them, so they are remembered here (vLLM's
+-    // ngram_context).
+-    //
+-    // This lives on the memory rather than on llama_model because it is per-context
+-    // per-sequence state, not a model weight: a llama_model is shared by every context
+-    // that loads it, so a map on the model keyed only by llama_seq_id let two contexts
+-    // (two server instances on one model, or a draft/target pair) overwrite each other's
+-    // history. It is also state that has to survive save/restore and to follow seq_rm,
+-    // seq_cp, seq_keep, seq_add and seq_div, and this class already does exactly that
+-    // bookkeeping for the caches next to it.
++    // The qwen4exp PLE hash of a token mixes in the ple_ngram_size - 1 tokens before it, which
++    // a decode ubatch does not carry. It lives here because it is per-context per-sequence
++    // state: it must follow the seq_* operations and the state blob, like the caches next to it.
+     struct ple_history {
+-        // position the next token of this sequence must have. -1 means "unknown": the
+-        // window is not trusted and the hash falls back to EOS padding.
++        // position the next token of this sequence must have; -1 means the window is not trusted
+         llama_pos next_pos = -1;
+ 
+-        // the tokens at positions [next_pos - toks.size(), next_pos), oldest first.
+-        // never longer than ple_ngram_size - 1, and may be shorter near a sequence start
+-        // or after a rewind - callers pad the missing front with EOS.
++        // the tokens at [next_pos - toks.size(), next_pos), oldest first, at most ple_ngram_size - 1
++        // it can be shorter near a sequence start or after a rewind; the caller pads the front with EOS
+         std::vector<llama_token> toks;
+     };
+ 
+-    // history for seq_id, default-constructed (and therefore untrusted) on first use.
+-    // const + mutable because it is read and updated from set_input, which runs off a
+-    // const memory context.
++    // history for seq_id, default-constructed (and so untrusted) on first use
++    // const because set_input updates it through a const memory context
+     ple_history & ple_hist_get(llama_seq_id seq_id) const;
+ 
+ private:
+-    // the indexer cache stores only one key head per layer, so it needs its own hparams
+-    // instance: llama_kv_cache keeps a reference to whatever it is given
++    // the indexer cache holds one key head per layer, so it needs its own hparams:
++    // llama_kv_cache keeps a reference to what it is given
+     llama_hparams hparams_idx;
+ 
+     const std::unique_ptr<llama_kv_cache> mem_idx;
+ 
+-    // [TAG_PLE_HISTORY] empty for every architecture but qwen4exp, which is the only one
+-    // whose graph asks for a history
++    // [TAG_PLE_HISTORY] empty for every architecture but qwen4exp, the only one that asks for a history
+     mutable std::unordered_map<llama_seq_id, ple_history> ple_hist;
+ 
+     // the seq_* halves of the history bookkeeping, one per llama_memory_i operation
+@@ -173,19 +152,17 @@ public:
+     // llama_memory_hybrid_idx_context specific API
+     //
+ 
+-    // nullptr when the model carries no indexer, and for the full and update contexts,
+-    // which do not drive the sparse-attention graph
++    // nullptr with no indexer, and for the full and update contexts, which build no sparse graph
+     const llama_kv_cache_context * get_idx() const;
+ 
+-    // streams in the current slot info, matching get_k/get_v's `ns`. 1 if unified.
++    // streams in the current slot info, the `ns` of get_k/get_v; 1 if unified
+     uint32_t get_n_stream() const;
+ 
+-    // [TAG_PLE_HISTORY] the owning memory's per-sequence n-gram history, for set_input
++    // [TAG_PLE_HISTORY] the per-sequence n-gram history of the owning memory, for set_input
+     llama_memory_hybrid_idx::ple_history & get_ple_hist(llama_seq_id seq_id) const;
+ 
+-    // block-compressed sparse attention (qwen4exp QSA) over the indexer cache's cells.
+-    // blocks cut the *position* line, not the cell array, so nothing assumes a contiguous
+-    // layout:
++    // block-compressed sparse attention (qwen4exp QSA) over the cells of the indexer cache.
++    // Blocks cut the position line, not the cell array, so no caller assumes a contiguous layout:
+     //   cell_blk  I32 [n_kv, ns]           block each cell belongs to
+     //   blk_cells I32 [ratio*n_blocks, ns] cells making up each block
+     //   blk_pos   I32 [4*n_blocks*ns]      mrope position rows of each block's first token
+@@ -196,8 +173,8 @@ public:
+ private:
+     const llama_memory_hybrid_idx * mem = nullptr;
+ 
+-    // streams per ubatch, taken from the slot infos before they are handed to ctx_idx.
+-    // declared first so that it is initialised while sinfos_idx is still intact
++    // streams per ubatch, read from the slot infos before ctx_idx takes them
++    // declared first, so it is initialised while sinfos_idx is still intact
+     const std::vector<uint32_t> ns_ubatch;
+ 
+     // null unless the model has an indexer and this is a batch context
+diff --git a/src/llama-model.cpp b/src/llama-model.cpp
+index a71b1aab1..c73e5bc06 100644
+--- a/src/llama-model.cpp
++++ b/src/llama-model.cpp
+@@ -2435,8 +2435,8 @@ llama_memory_i * llama_model::create_memory(const llama_memory_params & params,
+                     // layer filters, so pick the right one here
+                     llama_memory_hybrid::layer_filter_cb filter_attn = nullptr;
+                     llama_memory_hybrid::layer_filter_cb filter_recr = nullptr;
+-                    // llama_memory_hybrid_idx is used only by the sparse-attention architectures;
+-                    // filter_idx null within it means the GGUF carries no indexer tensors
++                    // only the sparse-attention architectures use llama_memory_hybrid_idx
++                    // a null filter_idx means the GGUF has no indexer tensors
+                     llama_memory_hybrid::layer_filter_cb filter_idx  = nullptr;
+                     const bool needs_mem_idx = (arch == LLM_ARCH_QWEN4EXP);
+                     if (arch == LLM_ARCH_FALCON_H1) {
+@@ -2486,8 +2486,7 @@ llama_memory_i * llama_model::create_memory(const llama_memory_params & params,
+                             /* filter_attn       */ std::move(filter_attn),
+                             /* filter_recr       */ std::move(filter_recr));
+                     } else if (needs_mem_idx) {
+-                        // sparse attention over a per-token indexer cache: a separate memory
+-                        // type, so the plain hybrid path is untouched
++                        // sparse attention over a per-token indexer cache, in its own memory type
+                         res = new llama_memory_hybrid_idx(
+                             /* model             */ *this,
+                             /* attn_type_k       */ params.type_k,
+diff --git a/src/llama-quant.cpp b/src/llama-quant.cpp
+index a9611bdaf..fc508fe20 100644
+--- a/src/llama-quant.cpp
++++ b/src/llama-quant.cpp
+@@ -402,11 +402,9 @@ static ggml_type tensor_type_fallback(quantize_state_impl & qs, const ggml_tenso
+             case GGML_TYPE_Q6_K:    return_type = GGML_TYPE_Q8_0;   break;
+             default:
+                 if (qk_k <= 32) {
+-                    // the target is already a 32-block type, so there is no smaller block to demote to
+-                    // and the shape is simply not representable; the check below turns it into F16, the
+-                    // same answer 256-block types reach when their fallback does not fit. Getting here
+-                    // means ncols is not a multiple of 32, e.g. a conv kernel a recipe forgot to pin;
+-                    // throwing gave no tensor name or message, making a recipe gap look like corruption.
++                    // the target is already a 32-block type, so there is no smaller block to demote
++                    // to; the check below turns it into F16, as a 256-block type does when its
++                    // fallback does not fit
+                     return_type = target_type;
+                     break;
+                 }
+@@ -690,10 +688,8 @@ static ggml_type llama_tensor_get_type(quantize_state_impl & qs, const llama_mod
+         return tensor->type;
+     }
+     if (params->token_embedding_type < GGML_TYPE_COUNT && tm.category == tensor_category::TOKEN_EMBD) {
+-        // per_layer_token_embd shares this category with token_embd.weight and follows
+-        // --token-embedding-type by default. But it is a separate table and far from a
+-        // rounding error: qwen4exp's is ~46% of a 4-bit file. Let an explicit --tensor-type
+-        // name it; nothing changes unless such a pattern is passed.
++        // per_layer_token_embd follows --token-embedding-type by default, but it is a large
++        // separate table, so let an explicit --tensor-type name it
+         bool named = false;
+         if (std::strcmp(tensor->name, "per_layer_token_embd.weight") == 0) {
+             const std::string tensor_name(tensor->name);
+@@ -1266,11 +1262,8 @@ static void llama_model_quantize_impl(const std::string & fname_inp, const std::
+                 LLAMA_LOG_INFO("converting to %s .. ", ggml_type_name(new_type));
+                 fflush(stdout);
+ 
+-                // Exact output size: ggml_row_size(new_type, ne0) per row, ne1 rows, ne2 slices --
+-                // what the loop writes, what new_size sums to, and what the GGUF metadata is
+-                // asserted against. The previous `nelements * 4` was a loose upper bound, invisible
+-                // on a normal model but 205 GB of dead address space on Qwen3.8-Flash-Next's 51.2 G
+-                // element PLE table -- about half of what OOMed a 2 TB machine at five-wide.
++                // exact output size: ggml_row_size(new_type, ne0) per row, ne1 rows, ne2 slices
++                // this is what the loop writes and what new_size sums to
+                 const size_t out_size =
+                     ggml_row_size(new_type, tensor->ne[0]) * tensor->ne[1] * tensor->ne[2];
+                 if (work.size() < out_size) {
+diff --git a/src/models/models.h b/src/models/models.h
+index 4c4478875..b22367fb0 100644
+--- a/src/models/models.h
++++ b/src/models/models.h
+@@ -2308,9 +2308,7 @@ struct llama_model_qwen4exp : public llama_model_base {
+                             int * sections,
+                             int   il);
+ 
+-        // dense self-attention restricted to the cells named by top_k. arch-local rather
+-        // than a build_attn overload so that no shared attention path changes: the sparse
+-        // MLA architectures keep their own copy of the same mask construction.
++        // dense self-attention restricted to the cells that top_k names
+         ggml_tensor * build_attn_qsa(
+         llm_graph_input_attn_kv * inp,
+                     ggml_tensor * q_cur,
+@@ -2343,8 +2341,7 @@ struct llama_model_qwen4exp : public llama_model_base {
+                     ggml_tensor * gate,
+                             int   layer);
+ 
+-        // build_rs writes the state tensor in place, so run it at most once per
+-        // layer; both convolutions share this gather.
++        // build_rs writes the state tensor in place, so both convolutions share one gather per layer
+         std::map<int, ggml_tensor *> rs_rows;
+ 
+         // conv history at an explicit offset: delta-net and PLE share the row
+diff --git a/src/models/qwen4exp.cpp b/src/models/qwen4exp.cpp
+index 0493b5c8b..bac689e24 100644
+--- a/src/models/qwen4exp.cpp
++++ b/src/models/qwen4exp.cpp
+@@ -49,8 +49,7 @@ void llama_model_qwen4exp::load_arch_hparams(llama_model_loader & ml) {
+         ml.get_key(LLM_KV_PLE_HEADS_PER_NGRAM, hparams.ple_heads_per_ngram);
+         ml.get_key(LLM_KV_PLE_CONV_KERNEL,     hparams.ple_conv_kernel);
+         ml.get_key(LLM_KV_PLE_EOS_TOKEN_ID,    hparams.ple_eos_token_id);
+-        // optional: absent in files converted before multimodal batches
+-        // were exercised, in which case the PLE hash falls back to EOS
++        // optional: files written before this key fall back to the EOS token
+         ml.get_key(LLM_KV_PLE_IMAGE_TOKEN_ID,  hparams.ple_image_token_id, false);
+         ml.get_key(LLM_KV_EMBEDDING_LENGTH_PER_LAYER, hparams.n_embd_per_layer);
+ 
+@@ -182,13 +181,8 @@ std::unique_ptr<llm_graph_context> llama_model_qwen4exp::build_arch_graph(const
+     return std::make_unique<graph>(*this, params);
+ }
+ 
+-// Hyper-connections replace every layer norm: the state between blocks is `hc`
+-// parallel residual streams [n_embd, hc, T]; each block reads one mixed [n_embd, T]
+-// view and writes back through per-stream injection weights.
+-// Not shared with deepseek4.cpp: DSV4 mixes full-rank + Sinkhorn, this is a
+-// low-rank down/silu/up gate with a plain mean collapse.
+-
+-// The mix output is [n_embd, T]; `inject` receives the [hc, T] scatter weights.
++// Hyper-connections keep hc parallel residual streams [n_embd, hc, T] in place of layer norms.
++// Returns the mixed [n_embd, T] stream; `inject` gets the [hc, T] scatter weights.
+ ggml_tensor * llama_model_qwen4exp::graph::build_hc_mix(
+         ggml_tensor *  x,
+         ggml_tensor *  w_norm,
+@@ -201,8 +195,8 @@ ggml_tensor * llama_model_qwen4exp::graph::build_hc_mix(
+     const int64_t hc_dim = hc * n_embd;
+     const int64_t nt     = x->ne[2];
+ 
+-    // grouped RMSNorm: rms_norm reduces over one residual stream, then the [hc_dim]
+-    // gamma scales all streams. Gammas were folded to (1 + w) by the converter.
++    // grouped RMSNorm: reduce over one stream, then scale all streams with the [hc_dim] gamma
++    // the converter folded each gamma to (1 + w)
+     ggml_tensor * xn = ggml_rms_norm(ctx0, x, hparams.f_norm_rms_eps);
+     xn = ggml_reshape_2d(ctx0, xn, hc_dim, nt);
+     xn = ggml_mul(ctx0, xn, w_norm);
+@@ -245,8 +239,7 @@ ggml_tensor * llama_model_qwen4exp::graph::build_hc_combine(
+     const int64_t hc = hparams.dsv4_hc_mult;
+     const int64_t nt = residual->ne[2];
+ 
+-    // 2*sigmoid centres the scatter weights on 1, so an untrained injection matrix
+-    // reproduces the plain residual add
++    // 2*sigmoid centres the scatter weights on 1, so a zero injection is a plain residual add
+     ggml_tensor * w = ggml_sigmoid(ctx0, ggml_scale(ctx0, inject, 1.0f / (float) hc));
+     w = ggml_scale(ctx0, w, 2.0f);
+     w = ggml_reshape_3d(ctx0, w, 1, hc, nt);
+@@ -274,11 +267,8 @@ llama_model_qwen4exp::graph::graph(const llama_model & model, const llm_graph_pa
+ 
+     auto * inp = build_inp_mem_hybrid();
+ 
+-    // present only when the GGUF carries indexer tensors, so a model without them still
+-    // builds a dense graph. The indexer cache takes the attention cache's slot layout,
+-    // so the two agree cell for cell by construction.
+-    // qwen4exp always builds llama_memory_hybrid_idx, so this downcast is total; the
+-    // indexer cache inside it is absent when the GGUF carries no indexer tensors
++    // qwen4exp always builds llama_memory_hybrid_idx, so this downcast is safe
++    // the indexer cache inside it is absent when the GGUF has no indexer tensors
+     const auto * mctx_hyb = static_cast<const llama_memory_hybrid_idx_context *>(inp->mctx);
+ 
+     const llama_kv_cache_context * mctx_idx = mctx_hyb->get_idx();
+@@ -333,8 +323,7 @@ llama_model_qwen4exp::graph::graph(const llama_model & model, const llm_graph_pa
+ 
+         res_hc = build_hc_combine(res_hc, cur, inject, il);
+ 
+-        // build_cvec expects [n_embd, T], so steer the stream mean and let the next mix
+-        // carry it. Tagged "l_last": the layer-output name imatrix_FIXED.cpp parses.
++        // "l_last" is the layer output name that build_cvec and imatrix look for
+         cb(res_hc, "l_last", il);
+     }
+ 
+@@ -385,11 +374,8 @@ ggml_tensor * llama_model_qwen4exp::graph::build_norm_gated(
+     return ggml_mul(ctx0, normalized, gated);
+ }
+ 
+-// QSA attends to a budget of whole blocks of `compress_ratio` tokens, scored by one
+-// mean-pooled indexer key each, plus the always-visible incomplete tail. Below
+-// indexer_top_k + compress_ratio - 1 cached tokens this is exactly dense attention.
+-// Everything depending on cache layout is computed host-side in set_input; the
+-// graph only gathers, pools and scores.
++// QSA attends to a budget of whole blocks of compress_ratio tokens, each scored by one
++// mean-pooled indexer key, plus the incomplete tail. set_input resolves the cache layout.
+ class llm_graph_input_qsa : public llm_graph_input_i {
+ public:
+     llm_graph_input_qsa(const llama_memory_hybrid_idx_context * mctx, uint32_t ratio) :
+@@ -401,7 +387,7 @@ public:
+         mctx->set_input_qsa(cell_blk, blk_cells, blk_pos, bias, ubatch, ratio);
+     }
+ 
+-    // Per-stream: a cell index means a different token in each stream. n_stream 1 = the old shapes.
++    // per stream: a cell index names a different token in each stream
+     ggml_tensor * k_idxs    = nullptr;   // I32 [n_tokens]
+     ggml_tensor * cell_blk  = nullptr;   // I32 [n_kv, n_stream]
+     ggml_tensor * blk_cells = nullptr;   // I32 [ratio*n_blocks, n_stream]
+@@ -429,7 +415,7 @@ ggml_tensor * llama_model_qwen4exp::graph::build_qsa_top_k(
+ 
+     const int64_t n_blocks = (n_kv + r - 1)/r;
+ 
+-    // n_tps: tokens divide evenly across streams, as build_attn_qsa and the KQ mask assume.
++    // build_attn_qsa and the KQ mask need the tokens to divide evenly across the streams
+     const int64_t n_stream = mctx_hyb->get_n_stream();
+     GGML_ASSERT(n_tokens % n_stream == 0);
+     const int64_t n_tps = n_tokens/n_stream;
+@@ -465,8 +451,7 @@ ggml_tensor * llama_model_qwen4exp::graph::build_qsa_top_k(
+     ggml_tensor * members = ggml_get_rows(ctx0, k_all, inp->blk_cells);
+     members = ggml_reshape_4d(ctx0, members, idx_dim, r, n_blocks, n_stream);
+ 
+-    // mean over the block's members; compress_ratio is small, so summing slices beats
+-    // transposing to reach ggml_sum_rows
++    // mean over the block members; r is small, so summing slices beats a transpose plus sum_rows
+     ggml_tensor * pooled = nullptr;
+     for (int64_t i = 0; i < r; ++i) {
+         ggml_tensor * slice = ggml_cont(ctx0,
+@@ -494,9 +479,8 @@ ggml_tensor * llama_model_qwen4exp::graph::build_qsa_top_k(
+             ext_factor, attn_factor, beta_fast, beta_slow);
+     cb(q, "indexer_q", il);
+ 
+-    // Each head's dot product is rectified before summing, as in DeepSeek's lightning
+-    // no per-head weight; the constant divisor cannot reorder. mul_mat matches ne[2], so
+-    // stream s's queries only meet stream s's blocks.
++    // rectify each head dot product before the sum, as in the DeepSeek lightning indexer
++    // mul_mat matches ne[2], so the queries of stream s only meet the blocks of stream s
+     ggml_tensor * score = ggml_mul_mat(ctx0, pooled,
+             ggml_reshape_3d(ctx0, ggml_cont(ctx0, q), idx_dim, n_idx_h*n_tps, n_stream));
+     score = ggml_reshape_4d(ctx0, score, n_blocks, n_idx_h, n_tps, n_stream);
+@@ -506,18 +490,15 @@ ggml_tensor * llama_model_qwen4exp::graph::build_qsa_top_k(
+     score = ggml_reshape_3d(ctx0, score, n_blocks, n_tps, n_stream);
+     cb(score, "indexer_score", il);
+ 
+-    // Give every token of a block its block's score rather than expanding the block
+-    // indices, which would need an integer multiply-add ggml has no op for. The
+-    // budget is a whole number of blocks and members tie, so the cut still lands on
+-    // a block boundary. get_rows gathers rows, so scores are transposed first.
++    // give every token of a block the block score; the budget is a whole number of
++    // blocks, so the top-k cut still lands on a block boundary
+     ggml_tensor * expanded = ggml_get_rows(ctx0,
+             ggml_cont(ctx0, ggml_permute(ctx0, score, 1, 0, 2, 3)), inp->cell_blk);
+     expanded = ggml_cont(ctx0, ggml_permute(ctx0, expanded, 1, 0, 2, 3));
+     expanded = ggml_add(ctx0, expanded, inp->bias);
+     cb(expanded, "indexer_score_tokens", il);
+ 
+-    // the reference returns indexer_top_k + compress_ratio - 1: a whole budget of
+-    // blocks plus the incomplete tail
++    // the reference returns indexer_top_k + compress_ratio - 1: whole blocks plus the tail
+     const int64_t width = std::min<int64_t>(n_kv, (int64_t) hparams.indexer_top_k + r - 1);
+ 
+     ggml_tensor * top_k = ggml_cont(ctx0, ggml_top_k(ctx0, expanded, width));
+@@ -529,12 +510,8 @@ ggml_tensor * llama_model_qwen4exp::graph::build_qsa_top_k(
+     return top_k;
+ }
+ 
+-// Dense GQA self-attention restricted to the cells named by top_k.
+-//
+-// This is the plain-KV counterpart of the MLA sparse path in llm_graph_context::build_attn
+-// for llm_graph_input_attn_k_dsa, and the mask construction below is a copy of that one.
+-// It is kept here rather than factored into a shared helper so that the attention path used
+-// by every other architecture is untouched by this arch.
++// Dense GQA self-attention restricted to the cells that top_k names.
++// The mask build below copies the MLA sparse path in llm_graph_context::build_attn.
+ ggml_tensor * llama_model_qwen4exp::graph::build_attn_qsa(
+         llm_graph_input_attn_kv * inp,
+         ggml_tensor *             q_cur,
+@@ -616,8 +593,6 @@ ggml_tensor * llama_model_qwen4exp::graph::build_layer_attn(
+ 
+     ggml_tensor * top_k = qsa ? build_qsa_top_k(mctx_hyb, cur, inp_pos, sections, il) : nullptr;
+ 
+-    // Order: joint QG projection, QG split, Q norm, KV projection, K norm, RoPE, attention
+-
+     // Qwen3Next uses a single Q projection that outputs query + gate
+     ggml_tensor * Qcur_full = build_lora_mm(model.layers[il].wq, cur, model.layers[il].wq_s); // [ (n_embd_head * 2) * n_head, n_tokens ]
+     cb(Qcur_full, "Qcur_full", il);
+@@ -627,7 +602,6 @@ ggml_tensor * llama_model_qwen4exp::graph::build_layer_attn(
+         ggml_element_size(Qcur_full) * n_embd_head * 2 * n_head, 0);
+     cb(Qcur, "Qcur_reshaped", il);
+ 
+-    // Apply Q normalization
+     Qcur = build_norm(Qcur, model.layers[il].attn_q_norm, nullptr, LLM_NORM_RMS, il);
+     cb(Qcur, "Qcur_normed", il);
+ 
+@@ -637,7 +611,6 @@ ggml_tensor * llama_model_qwen4exp::graph::build_layer_attn(
+     ggml_tensor * Vcur = build_lora_mm(model.layers[il].wv, cur, model.layers[il].wv_s);
+     cb(Vcur, "Vcur", il);
+ 
+-    // Apply K normalization
+     Kcur = ggml_reshape_3d(ctx0, Kcur, n_embd_head, n_head_kv, n_tokens);
+     Kcur = build_norm(Kcur, model.layers[il].attn_k_norm, nullptr, LLM_NORM_RMS, il);
+     cb(Kcur, "Kcur_normed", il);
+@@ -668,7 +641,6 @@ ggml_tensor * llama_model_qwen4exp::graph::build_layer_attn(
+     cb(Kcur, "Kcur", il);
+     cb(Vcur, "Vcur", il);
+ 
+-    // Attention computation
+     const float kq_scale = hparams.f_attention_scale == 0.0f ? 1.0f / sqrtf(float(n_embd_head)) : hparams.f_attention_scale;
+ 
+     if (top_k) {
+@@ -710,7 +682,6 @@ ggml_tensor * llama_model_qwen4exp::graph::build_layer_attn_linear(
+     GGML_ASSERT(ubatch.equal_seqs());
+     GGML_ASSERT(ubatch.n_tokens == n_seq_tokens * n_seqs);
+ 
+-    // Input projections
+     auto qkvz = build_qkvz(cur, il);
+     ggml_tensor * qkv_mixed = qkvz.first;
+     ggml_tensor * z         = qkvz.second;
+@@ -741,8 +712,7 @@ ggml_tensor * llama_model_qwen4exp::graph::build_layer_attn_linear(
+     ggml_tensor * conv_kernel      = model.layers[il].ssm_conv1d;
+     const int64_t conv_kernel_size = conv_kernel->ne[0];
+ 
+-    // channel count from how load_arch_tensors sizes wqkv, not ssm_d_inner: n_embd_r()
+-    // only bounds the row, and the convolution must match the tensor feeding it
++    // the channels must match how load_arch_tensors sizes wqkv, not ssm_d_inner
+     const int64_t conv_channels    = head_k_dim * num_k_heads * 2 + head_v_dim * num_v_heads;
+ 
+     // offset 0: delta-net history first, PLE history (if any) after it
+@@ -761,7 +731,6 @@ ggml_tensor * llama_model_qwen4exp::graph::build_layer_attn_linear(
+ 
+     ggml_tensor * conv_qkv_mix = conv_output_silu;
+ 
+-    // Calculate the total conv dimension
+     int64_t qkv_dim = head_k_dim * num_k_heads * 2 + head_v_dim * num_v_heads;
+     int64_t nb1_qkv = ggml_row_size(conv_qkv_mix->type, qkv_dim);
+ 
+@@ -808,28 +777,23 @@ ggml_tensor * llama_model_qwen4exp::graph::build_layer_attn_linear(
+ 
+     ggml_tensor * output = build_recurrent_attn(inp, ssm_states_all, q_conv, k_conv, v_conv, gate, beta, state, il);
+ 
+-    // z: [head_dim, n_heads, n_tokens, n_seqs] -> [n_heads * n_tokens * n_seqs, head_dim]
+     ggml_tensor * z_2d = ggml_reshape_4d(ctx0, z, head_v_dim, num_v_heads, n_seq_tokens, n_seqs);
+ 
+-    // Apply gated normalization: self.norm(core_attn_out, z)
++    // gated normalization, as self.norm(core_attn_out, z) in the reference
+     ggml_tensor * attn_out_norm = build_norm_gated(output, model.layers[il].ssm_norm, z_2d, il);
+ 
+-    // Final reshape: [head_dim, n_heads, n_tokens, n_seqs] -> [n_tokens, n_seqs, n_heads * head_dim]
+     ggml_tensor * final_output = ggml_reshape_3d(ctx0, attn_out_norm, head_v_dim * num_v_heads, n_seq_tokens, n_seqs);
+     cb(final_output, "final_output", il);
+ 
+-    // Output projection
+     cur = build_lora_mm(model.layers[il].ssm_out, final_output, model.layers[il].ssm_out_s);
+     cb(cur, "linear_attn_out", il);
+ 
+-    // Reshape back to original dimensions
+     cur = ggml_reshape_2d(ctx0, cur, n_embd, n_seq_tokens * n_seqs);
+ 
+     return cur;
+ }
+ 
+ ggml_tensor * llama_model_qwen4exp::graph::build_layer_ffn(ggml_tensor * cur, const int il) {
+-    // Check if this is an MoE layer
+     GGML_ASSERT(model.layers[il].ffn_gate_inp != nullptr);
+ 
+     ggml_tensor * moe_out =
+@@ -849,7 +813,7 @@ ggml_tensor * llama_model_qwen4exp::graph::build_layer_ffn(ggml_tensor * cur, co
+             model.layers[il].ffn_down_exps_s);
+     cb(moe_out, "ffn_moe_out", il);
+ 
+-    // Add shared experts if present - following Qwen3Next reference implementation
++    // shared experts, as in the Qwen3Next reference
+     if (model.layers[il].ffn_up_shexp != nullptr) {
+         ggml_tensor * ffn_shexp =
+             build_ffn(cur,
+@@ -864,12 +828,10 @@ ggml_tensor * llama_model_qwen4exp::graph::build_layer_ffn(ggml_tensor * cur, co
+         ggml_tensor * shared_gate = build_lora_mm(model.layers[il].ffn_gate_inp_shexp, cur);
+         cb(shared_gate, "shared_expert_gate", il);
+ 
+-        // Apply sigmoid to the gate
+         shared_gate = ggml_sigmoid(ctx0, shared_gate);
+         cb(shared_gate, "shared_expert_gate_sigmoid", il);
+ 
+ 
+-        // Apply the gate to the shared expert output
+         ffn_shexp = ggml_mul(ctx0, ffn_shexp, shared_gate);
+         cb(ffn_shexp, "ffn_shexp_gated", il);
+ 
+@@ -884,8 +846,7 @@ ggml_tensor * llama_model_qwen4exp::graph::build_layer_ffn(ggml_tensor * cur, co
+ 
+ // PLE n-gram hash embedding: each token gathers ple_n_heads rows of a shared table.
+ //   mixed_n = (t[p]*m[0]) ^ ... ^ (t[p-n+1]*m[n-1]);  row = mixed_n % vocab[h] + offset[h]
+-// Multipliers reach ~2^45, so the hash runs host-side: ggml has no int64 and no xor.
+-// Predecessors reset at EOS; positions before the sequence start read as EOS.
++// The hash runs host-side because ggml has no int64 and no xor. EOS resets the window.
+ 
+ class llm_graph_input_ple : public llm_graph_input_i {
+ public:
+@@ -899,27 +860,18 @@ public:
+ 
+     const llama_model_qwen4exp & pmodel;
+ 
+-    // [TAG_PLE_HISTORY] the token history lives on the memory, which is per context.
+-    // On the model it was shared by every context that loaded the same weights, so two
+-    // contexts running the same seq_id overwrote each other's window, and it took part in
+-    // no state blob at all.
++    // the token history lives on the memory, so it is per context and part of the state blob
+     const llama_memory_hybrid_idx_context * mctx;
+ };
+ 
+ void llm_graph_input_ple::set_input(const llama_ubatch * ubatch) {
+     const auto & hp = pmodel.hparams;
+ 
+-    // A multimodal ubatch arrives as embeddings: the mtmd layer has already
+-    // consumed the image placeholder ids, so ubatch->token is null. The hash
+-    // still has to produce a row for every position, because this input feeds
+-    // ggml_get_rows. Returning early here left the index buffer uninitialised,
+-    // so whatever happened to be in it indexed a 320 M row table -- an
+-    // out-of-range gather, which aborts inside ggml_compute_forward_get_rows.
+-    //
+-    // The reference hashes input_ids, where those positions still hold the
+-    // image placeholder, so use that token here. A file converted before the
+-    // key existed falls back to EOS, which is defined and simply treats the
+-    // image as a segment boundary.
++    // An image is decoded as an embeddings-only batch, so ubatch->token is null and the
++    // placeholder ids are not available. The hash must still give every position a row,
++    // because this input feeds ggml_get_rows. Stand in the configured image token id, as
++    // the reference hashes the placeholder, or EOS if the file has no such key.
++    // gemma3n and gemma4 do the same with a hardcoded row 0 of per_layer_token_embd.
+     const llama_token img_tok = hp.ple_image_token_id != 0
+         ? (llama_token) hp.ple_image_token_id
+         : (llama_token) hp.ple_eos_token_id;
+@@ -935,19 +887,12 @@ void llm_graph_input_ple::set_input(const llama_ubatch * ubatch) {
+ 
+     std::vector<int32_t> idx(n_heads * n_tokens);
+ 
+-    // Missing predecessors come from per-sequence history (vLLM's ngram_context),
+-    // trusted only when contiguous with the incoming position, else EOS padding.
++    // missing predecessors come from the per-sequence history, but only when it is
++    // contiguous with the incoming position; otherwise the window is EOS-padded
+     GGML_ASSERT(mctx != nullptr);
+ 
+-    // Snapshot the incoming history before touching it. Reading and updating in
+-    // the same pass would let a token near the start of the ubatch pick up an
+-    // earlier token of this same ubatch as if it were prior context.
+-    //
+-    // The snapshot is always exactly n_gram - 1 long, EOS-padded at the FRONT, because
+-    // prev() below indexes it with the most recent token last. A history shorter than
+-    // n_gram - 1 - a sequence that has decoded only one or two tokens, or one rewound by
+-    // seq_rm - used to be padded at the back by resize(), which put the EOS filler where
+-    // the immediately preceding token belongs and read the real token as older than it is.
++    // snapshot the history first, so a token cannot read an earlier token of this same ubatch
++    // the snapshot is always n_gram - 1 long and EOS-padded at the front: prev() puts the most recent token last
+     std::unordered_map<llama_seq_id, std::vector<llama_token>> snap;
+     for (int64_t i = 0; i < n_tokens; ++i) {
+         const llama_seq_id seq = ubatch->seq_id[i][0];
+@@ -990,9 +935,7 @@ void llm_graph_input_ple::set_input(const llama_ubatch * ubatch) {
+         };
+ 
+         // an EOS in the window resets everything at or before it
+-        // Note the token's own EOS does not cut its context: the reference
+-        // takes the last EOS strictly *before* this position, so a segment
+-        // boundary only hides tokens from the positions that follow it.
++        // the EOS of the token itself does not cut its own context, as in the reference
+         std::vector<int64_t> ctx(n_gram);
+         ctx[0] = tok_of(i);
+         bool cut = false;
+@@ -1027,13 +970,8 @@ void llm_graph_input_ple::set_input(const llama_ubatch * ubatch) {
+     ggml_backend_tensor_set(rows, idx.data(), 0, idx.size()*ggml_element_size(rows));
+ }
+ 
+-// Fetch one conv history out of the recurrent row and write the updated tail
+-// back, at an explicit offset within that row.
+-//
+-// The shared build_conv_state assumes the whole row belongs to one convolution.
+-// Here the row carries the delta-net conv history followed by the PLE one, so
+-// each caller addresses its own slice. Same structure as the shared helper,
+-// only with an offset and an explicit dilation.
++// Read one conv history from the recurrent row at row_offset and write the new tail back.
++// The shared build_conv_state cannot do this: the row holds the delta-net history and the PLE one.
+ ggml_tensor * llama_model_qwen4exp::graph::build_conv_state_at(
+         llm_graph_input_rs * inp,
+         ggml_tensor *        conv_states_all,
+@@ -1104,8 +1042,7 @@ ggml_tensor * llama_model_qwen4exp::graph::build_ple(
+     ggml_tensor * rows = ple_inp->rows;
+     res->add_input(std::move(ple_inp));
+ 
+-    // gather then flatten the heads: get_rows already lays the head dimension
+-    // out slowest, matching the reference's flatten over the head axis
++    // gather then flatten the heads: get_rows lays the head dimension out slowest, as the reference does
+     ggml_tensor * emb = ggml_get_rows(ctx0, model.per_layer_tok_embd, rows);
+     emb = ggml_reshape_2d(ctx0, emb, hparams.ple_head_dim * n_heads, n_tokens);
+     cb(emb, "ple_embd", il);
+@@ -1113,8 +1050,7 @@ ggml_tensor * llama_model_qwen4exp::graph::build_ple(
+     ggml_tensor * key   = build_lora_mm(model.layers[il].ple_key,   emb);
+     ggml_tensor * value = build_lora_mm(model.layers[il].ple_value, emb);
+ 
+-    // both norms are grouped over one hc stream, with an affine weight that
+-    // spans the whole hc*n_embd layout, exactly as in build_hc_mix
++    // both norms group over one hc stream, with a weight over the whole hc*n_embd layout
+     auto grouped_norm = [&](ggml_tensor * x, ggml_tensor * w) {
+         ggml_tensor * t = ggml_reshape_3d(ctx0, x, n_embd, hc, n_tokens);
+         t = ggml_rms_norm(ctx0, t, hparams.f_norm_rms_eps);
+@@ -1146,23 +1082,15 @@ ggml_tensor * llama_model_qwen4exp::graph::build_ple(
+             model.layers[il].ple_norm_conv);
+     normalized = ggml_reshape_2d(ctx0, normalized, hc_dim, n_tokens);
+ 
+-    // Depthwise causal conv, dilated by the n-gram size. Written out as a sum
+-    // of shifted, per-channel-scaled copies rather than via ggml_conv_1d_dw:
+-    // that op carries a "very likely wrong for some cases" warning upstream,
+-    // and this form is a handful of ops on a tensor this small.
+-    //
++    // Depthwise causal conv dilated by the n-gram size, as a sum of shifted copies, because
++    // ggml_conv_1d_dw is documented as unreliable:
+     //   out[c, t] = sum_k w[k, c] * x[c, t - (K-1-k)*dilation]
+-    //
+-    // History from earlier ubatches is prepended, so decode and chunked prefill
+-    // see the same context a single-shot prefill would. A fresh sequence starts
+-    // with a zeroed state, which is what the reference's zero-padded nn.Conv1d
+-    // gives at a sequence start.
++    // The history of the earlier ubatches is prepended, so a chunked prefill matches a single-shot one.
+     const int64_t kern = hparams.ple_conv_kernel;
+     const int64_t dil  = hparams.ple_ngram_size;
+     const int64_t hist = (kern - 1) * dil;
+ 
+-    // the conv history is per sequence, so the input has to carry the sequence
+-    // axis too rather than relying on it being one
++    // the conv history is per sequence, so the input carries the sequence axis too
+     const int64_t n_seqs       = ubatch.n_seqs;
+     const int64_t n_seq_tokens = ubatch.n_seq_tokens;
+ 
+@@ -1188,8 +1116,7 @@ ggml_tensor * llama_model_qwen4exp::graph::build_ple(
+                 ggml_view_2d(ctx0, model.layers[il].ple_conv1d, 1, hc_dim,
+                         model.layers[il].ple_conv1d->nb[1],
+                         k * model.layers[il].ple_conv1d->nb[0]));
+-        // unlike the 1-D norm gammas, this kernel keeps the file's type, so it
+-        // needs an explicit cast before multiplying an f32 activation
++        // this kernel keeps the file type, so cast it before it multiplies an f32 activation
+         wk = ggml_reshape_1d(ctx0, wk, hc_dim);
+         if (wk->type != GGML_TYPE_F32) {
+             wk = ggml_cast(ctx0, wk, GGML_TYPE_F32);
+-- 
+2.40.0.windows.1
+

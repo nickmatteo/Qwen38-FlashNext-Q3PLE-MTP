@@ -1,0 +1,58 @@
+# Large/model artifacts are opt-in via explicit manifests.
+*.gguf
+*.safetensors
+*.bin
+*.pt
+*.pth
+*.ckpt
+*.onnx
+*.nvfp4
+*.ftw
+
+# Local model payloads, external source checkouts, build toolchains, and
+# experiment worktrees are reproducible inputs, not root-repository content.
+/artifacts/models/
+/artifacts/toolchain/
+/artifacts/upstream/
+/artifacts/tmp/
+/artifacts/hf-release/
+/artifacts/stage*/
+/artifacts/test-step*/
+/workstreams/
+
+# Generated logs remain local unless deliberately force-added. Structured
+# result records are tracked; large result payloads must be explicitly ignored.
+logs/*/
+!logs/README.md
+/results/**/logs/
+/results/**/state/
+*.log
+
+# A local quant-regression corpus assembled from third-party llama.cpp source.
+# Its manifest and hash may be tracked, but the copied corpus is not redistributed.
+/results/A0-QUALITY-001/independent_corpus_v2.txt
+
+# Credentials and machine-local configuration are never repository content.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+credentials*.json
+
+# Local audits and editor/OS scratch files.
+/.audit-*
+*.tmp
+*.bak
+Thumbs.db
+.DS_Store
+
+# Runtime/build/cache state
+.venv*/
+__pycache__/
+*.pyc
+.cache/
+.pytest_cache/
+build/
+build-*/
+cmake-build-*/

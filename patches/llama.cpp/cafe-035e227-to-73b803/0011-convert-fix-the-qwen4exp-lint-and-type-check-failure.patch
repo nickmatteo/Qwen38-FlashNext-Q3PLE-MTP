@@ -1,0 +1,80 @@
+From 213df585b9aed6a09be30d8401f267bf603c104c Mon Sep 17 00:00:00 2001
+From: Daniel Han <danielhanchen@gmail.com>
+Date: Thu, 27 Aug 2026 02:26:31 +0000
+Subject: [PATCH 11/36] convert: fix the qwen4exp lint and type-check failures
+
+flake8 flagged an unused MmprojModel import, and ty flagged seven errors in
+the PLE streaming path: eos_token_id can be absent, and _ple_map, _ple_path,
+_ple_row_dim and _ple_rows_per_shard are all Optional at the declaration but
+were dereferenced without narrowing.
+
+The map is opened and the stride fixed before the first shard is written, and
+_finish_ple_table only runs once every shard has landed, so the invariants
+hold. Assert them so the checker can see it. A missing eos_token_id now raises
+with the reason instead of a TypeError from int(None).
+---
+ conversion/qwen4exp.py | 14 +++++++++++---
+ 1 file changed, 11 insertions(+), 3 deletions(-)
+
+diff --git a/conversion/qwen4exp.py b/conversion/qwen4exp.py
+index 38f2eaa4b..f7361d6a3 100644
+--- a/conversion/qwen4exp.py
++++ b/conversion/qwen4exp.py
+@@ -1,5 +1,6 @@
+ from __future__ import annotations
+ 
++from pathlib import Path
+ from typing import Iterable
+ 
+ import torch
+@@ -8,7 +9,7 @@ from torch import Tensor
+ import gguf
+ import numpy as np
+ 
+-from .base import ModelBase, MmprojModel
++from .base import ModelBase
+ from .qwen import _LinearAttentionVReorderBase, _Qwen35MRopeMixin
+ from .qwen3vl import Qwen3VLVisionModel
+ 
+@@ -36,8 +37,8 @@ class Qwen4ExpTextModel(_Qwen35MRopeMixin, _LinearAttentionVReorderBase):
+         self._ple_shard_rows: dict[int, int] = {}
+         self._ple_row_dim: int | None = None
+         self._ple_rows_per_shard: int | None = None
+-        self._ple_map = None
+-        self._ple_path = None
++        self._ple_map: np.memmap | None = None
++        self._ple_path: Path | None = None
+ 
+     def _read_hash_constants(self, suffix: str) -> list[int]:
+         """Read an int64 PLE constant straight from the checkpoint.
+@@ -106,6 +107,8 @@ class Qwen4ExpTextModel(_Qwen35MRopeMixin, _LinearAttentionVReorderBase):
+         if isinstance(eos, list):
+             # the PLE hash resets n-grams on the primary EOS
+             return int(eos[-1])
++        if eos is None:
++            raise ValueError("eos_token_id is required: the PLE hash resets its n-grams on it")
+         return int(eos)
+ 
+     def modify_tensors(self, data_torch: Tensor, name: str, bid: int | None) -> Iterable[tuple[str, Tensor]]:
+@@ -186,6 +189,8 @@ class Qwen4ExpTextModel(_Qwen35MRopeMixin, _LinearAttentionVReorderBase):
+         return [(gguf_name + ".weight", table)]
+ 
+     def _write_ple_shard(self, idx: int, shard: Tensor) -> None:
++        # the caller opens the map and fixes the stride before the first write
++        assert self._ple_map is not None and self._ple_rows_per_shard is not None
+ 
+         rows = int(shard.shape[0])
+         if idx != self.hparams["split_ngram_parts"] - 1 and rows != self._ple_rows_per_shard:
+@@ -203,6 +208,9 @@ class Qwen4ExpTextModel(_Qwen35MRopeMixin, _LinearAttentionVReorderBase):
+         del eager
+ 
+     def _finish_ple_table(self, total_rows: int):
++        # only reached once every shard has been written, so the map is open
++        assert self._ple_map is not None and self._ple_path is not None
++        assert self._ple_row_dim is not None
+ 
+         self._ple_map.flush()
+         del self._ple_map
+-- 
+2.40.0.windows.1
+

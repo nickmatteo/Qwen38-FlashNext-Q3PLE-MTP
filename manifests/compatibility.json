@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "release": "Qwen3.8-Flash-Next-Q3_PLE-MTP-GGUF",
+  "base_model": {
+    "repo": "Qwen/Qwen3.8-Flash-Next",
+    "revision": "f5d08274bafd880402bd16f5e3e6c514136ec06c"
+  },
+  "immediate_source": {
+    "repo": "AtomicChat/Qwen3.8-Flash-Next-GGUF",
+    "revision": "142262902a46f7daed19c79d0771534c8106ad59"
+  },
+  "target": {
+    "family": "Qwen3.8-Flash-Next-AD-4.27bpw-Q3_PLE-M64",
+    "shards": 33,
+    "aggregate_bytes": 78525318176,
+    "manifest_sha256": "bcb148841cb4f63ee3bd37dcbe382d17ccf9213d6ae297c2ce72cdecfc919d50",
+    "ggml_type": "Q3_PLE",
+    "ggml_type_code": 43
+  },
+  "draft": {
+    "filename": "mtp-Qwen3.8-Flash-Next-DOWNQ4-FC-HC-OUTQ4.gguf",
+    "bytes": 2202883264,
+    "sha256": "7e9f2b282dc62534313b30738e0ad114c14e1a58b9c1e7bb9715dcf9c4ca676e",
+    "spec_type": "draft-mtp"
+  },
+  "runtime": {
+    "base_repo": "quimmedes/cafe-llama.cpp",
+    "base_commit": "035e22731a7fd70b9854b3a2d64ec68e9b1a45d3",
+    "required_head": "73b803464f25fc9054046728bf2ebed5a372737e",
+    "stock_llama_cpp_compatible": false,
+    "patches": "https://github.com/nickmatteo/Qwen38-FlashNext-Q3PLE-MTP/tree/main/patches/llama.cpp/cafe-035e227-to-73b803"
+  },
+  "license": "Qwen Community License 1.0"
+}

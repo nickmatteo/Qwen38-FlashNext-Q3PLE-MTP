@@ -1,0 +1,28 @@
+From 6a69a0c12c771aaa057ee16c21bbbc879bfa671c Mon Sep 17 00:00:00 2001
+From: danielhanchen <unslothshared@gmail.com>
+Date: Thu, 27 Aug 2026 00:00:41 +0000
+Subject: [PATCH 06/36] qwen4exp: drop an unused variable that breaks -Werror
+ builds
+
+(cherry picked from commit 528d032b51fa3cf935ed3ef6e0fb1c7401df53b5)
+---
+ src/models/qwen4exp.cpp | 3 +--
+ 1 file changed, 1 insertion(+), 2 deletions(-)
+
+diff --git a/src/models/qwen4exp.cpp b/src/models/qwen4exp.cpp
+index 40df2ce4f..13338f31b 100644
+--- a/src/models/qwen4exp.cpp
++++ b/src/models/qwen4exp.cpp
+@@ -996,8 +996,7 @@ ggml_tensor * llama_model_qwen4exp::graph::build_conv_state_at(
+         int                  il) {
+     const auto * mctx_cur = inp->mctx;
+ 
+-    const auto kv_head  = mctx_cur->get_head();
+-    const auto mem_size = mctx_cur->get_size();
++    const auto kv_head = mctx_cur->get_head();
+ 
+     const int64_t n_seqs    = ubatch.n_seqs;
+     const int64_t row_total = hparams.n_embd_r();
+-- 
+2.40.0.windows.1
+

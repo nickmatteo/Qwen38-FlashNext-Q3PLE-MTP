@@ -1,0 +1,24 @@
+From 0b19188e935480369f3b006e0cf17576dce066a3 Mon Sep 17 00:00:00 2001
+From: danielhanchen <unslothshared@gmail.com>
+Date: Thu, 27 Aug 2026 01:09:27 +0000
+Subject: [PATCH 10/36] qwen4exp: include llama-impl.h explicitly for
+ llama_mul_mat_hadamard
+
+(cherry picked from commit b634fd4d250d181ef82bf78bd00c1ae3b96a7af6)
+---
+ src/models/qwen4exp.cpp | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/src/models/qwen4exp.cpp b/src/models/qwen4exp.cpp
+index 13338f31b..c43871099 100644
+--- a/src/models/qwen4exp.cpp
++++ b/src/models/qwen4exp.cpp
+@@ -1,4 +1,5 @@
+ #include "models.h"
++#include "llama-impl.h"
+ #include "llama-memory-hybrid-idx.h"
+ #include "llama-memory-recurrent.h"
+ 
+-- 
+2.40.0.windows.1
+

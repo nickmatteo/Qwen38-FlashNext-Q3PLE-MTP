@@ -1,0 +1,41 @@
+From 5674c73aa8f46ba41c3401828fb2615c623c0f2f Mon Sep 17 00:00:00 2001
+From: Daniel Han <danielhanchen@gmail.com>
+Date: Thu, 27 Aug 2026 01:14:17 +0000
+Subject: [PATCH 08/36] llama: segment the qwen4exp fused QKV for tensor split
+
+qwen4exp was missing from the gated delta net branch of get_split_segments,
+so its attn_qkv.weight, shaped {n_embd, 2*key_dim + value_dim}, fell through
+to the generic fused QKV rule and tripped
+GGML_ASSERT(tensor->ne[axis] == n_embd + 2*n_embd_gqa) while loading with
+--split-mode tensor. --split-mode layer was unaffected.
+
+qwen4exp broadcasts K to the V heads by tiling, k_conv is grown with a plain
+ggml_repeat_4d over the head axis so that v head j pairs with k head
+j % n_k_heads. That is the Qwen 3.5 pattern, not the repeat interleave that
+Qwen 3 Next builds explicitly, so qwen4exp takes the else branch and its V is
+segmented on the scale of K.
+
+Reported by benklop.
+
+(cherry picked from commit 353d753f595dc81634ae6130188b31f06018f5ae)
+---
+ src/llama-model.cpp | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/src/llama-model.cpp b/src/llama-model.cpp
+index c73e5bc06..8b24ed5ec 100644
+--- a/src/llama-model.cpp
++++ b/src/llama-model.cpp
+@@ -579,7 +579,8 @@ struct ggml_backend_meta_split_state llama_meta_device_get_split_state(const str
+     };
+ 
+     auto get_split_segments = [&](int axis, uint32_t il) -> std::vector<std::pair<int64_t, uint32_t>> {
+-        if (ud->model->arch == LLM_ARCH_QWEN3NEXT || ud->model->arch == LLM_ARCH_QWEN35 || ud->model->arch == LLM_ARCH_QWEN35MOE) {
++        if (ud->model->arch == LLM_ARCH_QWEN3NEXT || ud->model->arch == LLM_ARCH_QWEN35 || ud->model->arch == LLM_ARCH_QWEN35MOE ||
++                ud->model->arch == LLM_ARCH_QWEN4EXP) {
+             const int64_t head_k_dim = hparams.ssm_d_state;
+             const int64_t head_v_dim = hparams.ssm_d_state;
+             const int64_t n_k_heads  = hparams.ssm_n_group;
+-- 
+2.40.0.windows.1
+

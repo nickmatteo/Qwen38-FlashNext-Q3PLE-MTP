@@ -1,0 +1,59 @@
+From 51c0c10d5904550dc822925f74367aa47982249c Mon Sep 17 00:00:00 2001
+From: Joakim Hansson <joakim.hansson87@gmail.com>
+Date: Fri, 28 Aug 2026 10:40:15 +0000
+Subject: [PATCH 23/36] qwen4exp: make the GDN conv concat operand contiguous
+
+The conv input assembly concatenated the transposed activations
+directly, hitting concat's non-contiguous path: ~13ms per GDN layer per
+2048-token prefill chunk, ~463ms per chunk across the 36 layers
+(measured, the second-largest single op in deep prefill). A ggml_cont on
+the transpose first drops it to ~0.7ms per layer (~26ms per chunk).
+
+Also add a GGML_VK_DEBUG_MASK_OPT env probe that reports whether the
+flash attention mask-opt tile-skip pre-pass engages; it confirmed the
+pre-pass is already active for QSA prefill chunks (nem1=2048), so the
+"sparse prefill" attention skip needs no further work.
+
+Greedy output identical. Prefill: ~+8% at every depth.
+
+Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01AUwCGmqs39JdaEFjBmtvDa
+---
+ ggml/src/ggml-vulkan/ggml-vulkan.cpp | 4 ++++
+ src/models/qwen4exp.cpp              | 5 ++++-
+ 2 files changed, 8 insertions(+), 1 deletion(-)
+
+diff --git a/ggml/src/ggml-vulkan/ggml-vulkan.cpp b/ggml/src/ggml-vulkan/ggml-vulkan.cpp
+index 5b880b35b..0f9c2732c 100644
+--- a/ggml/src/ggml-vulkan/ggml-vulkan.cpp
++++ b/ggml/src/ggml-vulkan/ggml-vulkan.cpp
+@@ -10979,6 +10979,10 @@ static void ggml_vk_flash_attn(ggml_backend_vk_context * ctx, vk_context& subctx
+     // Only use mask opt when the mask is fairly large. This hasn't been tuned extensively.
+     bool use_mask_opt = mask && nem1 >= 32 && nem0 * nem1 > 32768 && nem0 >= tuning_params.block_cols * 16
+                         && (ctx->device->architecture != vk_device_architecture::AMD_GCN || HSK > 256 || HSV > 256);
++    if (getenv("GGML_VK_DEBUG_MASK_OPT")) {
++        fprintf(stderr, "MASKOPT: use=%d nem0=%u nem1=%u block_cols=%u\n",
++                (int) use_mask_opt, nem0, nem1, tuning_params.block_cols);
++    }
+     vk_fa_pipeline_state fa_pipeline_state = get_fa_pipeline_state(ctx->device, tuning_params, HSK, HSV, aligned, f32acc,
+                                                                    mask != nullptr, use_mask_opt, logit_softcap != 0, k_type_eff, v_type_eff);
+ 
+diff --git a/src/models/qwen4exp.cpp b/src/models/qwen4exp.cpp
+index bd4ff4751..703cfbc02 100644
+--- a/src/models/qwen4exp.cpp
++++ b/src/models/qwen4exp.cpp
+@@ -1649,7 +1649,10 @@ ggml_tensor * llama_model_qwen4exp::graph::build_conv_state_at(
+     state = ggml_reshape_3d(ctx0, state, state_cols, channels, n_seqs);
+     cb(state, "conv_state_at", il);
+ 
+-    ggml_tensor * conv_input = ggml_concat(ctx0, state, ggml_transpose(ctx0, x), 0);
++    // cont the transposed activations first: concat's non-contiguous path costs ~13ms
++    // per layer on 2048-token prefill chunks (measured), the cont+contiguous concat is
++    // an order of magnitude cheaper
++    ggml_tensor * conv_input = ggml_concat(ctx0, state, ggml_cont(ctx0, ggml_transpose(ctx0, x)), 0);
+ 
+     // keep the last state_cols columns for the next ubatch
+     const size_t row_size = ggml_row_size(conv_states_all->type, row_total);
+-- 
+2.40.0.windows.1
+

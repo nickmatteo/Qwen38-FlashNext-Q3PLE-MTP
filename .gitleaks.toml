@@ -1,0 +1,18 @@
+title = "Qwen3.8 research repository secret scanning"
+minVersion = "8.25.0"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Evidence token-ID SHA-256 fields and fixed retrieval fixtures are not credentials"
+targetRules = ["generic-api-key"]
+regexTarget = "line"
+regexes = [
+  '''(?i)["']?[a-z0-9_]*token[a-z0-9_]*sha256["']?\s*[:=]\s*["']?[0-9a-f]{64}''',
+  '''7cf12a177c1b07eb7607b7a7af6f0accab86b6cdea94aed3b1264c4f5e3478ee''',
+  '''["']?key["']?\s*:\s*["']CTX_16384_K7Q9["']''',
+]
+paths = [
+  '''results/QWEN38-MTP-PROTOTYPE-001/q3ple_canonical_60k_canonical_retrieval_ab_20260831_v1_r1\.json''',
+]

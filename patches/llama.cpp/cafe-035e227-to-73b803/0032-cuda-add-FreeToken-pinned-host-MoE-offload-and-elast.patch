@@ -1,0 +1,261 @@
+From bcf1feae2f45b16d261839785ec3d73ef45c92ba Mon Sep 17 00:00:00 2001
+From: quimmedes <quimmedes@gmail.com>
+Date: Wed, 26 Aug 2026 16:32:05 -0300
+Subject: [PATCH 32/36] cuda: add FreeToken pinned host MoE offload and elastic
+ LRU cache
+
+Assisted-by: Claude
+---
+ common/arg.cpp                  |   2 +
+ common/common.h                 |   9 +++
+ ggml/src/ggml-cuda/common.cuh   | 127 ++++++++++++++++++++++++++++++++
+ ggml/src/ggml-cuda/ggml-cuda.cu |  28 ++++++-
+ 4 files changed, 163 insertions(+), 3 deletions(-)
+
+diff --git a/common/arg.cpp b/common/arg.cpp
+index dbd0aa7b4..8f011e643 100644
+--- a/common/arg.cpp
++++ b/common/arg.cpp
+@@ -2771,6 +2771,8 @@ common_params_context common_params_parser_init(common_params & params, llama_ex
+             }
+         }
+     ).set_env("LLAMA_ARG_N_CPU_MOE"));
++    add_opt(common_arg({"-hmoe", "--host-moe"}, "keep all MoE weights in pinned host memory", [](common_params & p) { p.tensor_buft_overrides.push_back(llm_ffn_exps_host_override()); }).set_env("LLAMA_ARG_HOST_MOE"));
++    add_opt(common_arg({"-nhmoe", "--n-host-moe"}, "N", "keep first N layers of MoE weights in pinned host memory", [](common_params & p, int n) { if (n < 0) throw std::invalid_argument("invalid value"); llm_add_n_host_moe_overrides(n, p.tensor_buft_overrides); }).set_env("LLAMA_ARG_N_HOST_MOE"));
+     GGML_ASSERT(params.n_gpu_layers < 0); // string_format would need to be extended for a default >= 0
+     add_opt(common_arg(
+         {"-ngl", "--gpu-layers", "--n-gpu-layers"}, "N",
+diff --git a/common/common.h b/common/common.h
+index 63b43d9cf..0c248df01 100644
+--- a/common/common.h
++++ b/common/common.h
+@@ -1132,6 +1132,15 @@ inline llama_model_tensor_buft_override llm_ffn_exps_cpu_override() {
+     return { LLM_FFN_EXPS_REGEX, ggml_backend_cpu_buffer_type() };
+ }
+ 
++inline ggml_backend_buffer_type_t common_host_buffer_type() {
++    for (size_t i = 0; i < ggml_backend_dev_count(); ++i) { auto * b = ggml_backend_dev_host_buffer_type(ggml_backend_dev_get(i)); if (b) return b; }
++    return ggml_backend_cpu_buffer_type();
++}
++inline llama_model_tensor_buft_override llm_ffn_exps_host_override() { return { LLM_FFN_EXPS_REGEX, common_host_buffer_type() }; }
++inline void llm_add_n_host_moe_overrides(int n, std::vector<llama_model_tensor_buft_override> & out) {
++    static std::list<std::string> strings; for (int i=0;i<n;++i) { strings.push_back(llm_ffn_exps_block_regex(i)); out.push_back({strings.back().c_str(), common_host_buffer_type()}); }
++}
++
+ //
+ // training utils
+ //
+diff --git a/ggml/src/ggml-cuda/common.cuh b/ggml/src/ggml-cuda/common.cuh
+index 14dd1098c..1307b6c02 100644
+--- a/ggml/src/ggml-cuda/common.cuh
++++ b/ggml/src/ggml-cuda/common.cuh
+@@ -1411,6 +1411,130 @@ struct ggml_cuda_stream_context {
+         concurrent_events.clear();
+     }
+ };
++struct ggml_cuda_expert_lru_cache {
++    struct entry {
++        void * dev_ptr = nullptr;
++        size_t size = 0;
++        uint64_t last_used = 0;
++    };
++    int device = 0;
++    size_t max_bytes = 0;
++    size_t current_bytes = 0;
++    uint64_t step_counter = 0;
++    bool initialized = false;
++    bool is_elastic = false;
++
++    std::unordered_map<const void *, entry> entries;
++
++    void update_elastic_budget() {
++        if (!is_elastic) {
++            return;
++        }
++        size_t free_mem = 0;
++        size_t total_mem = 0;
++        ggml_cuda_set_device(device);
++        cudaError_t err = cudaMemGetInfo(&free_mem, &total_mem);
++        if (err == cudaSuccess) {
++            const size_t headroom = 512ULL * 1024 * 1024;
++            if (free_mem > headroom) {
++                max_bytes = current_bytes + (size_t)((free_mem - headroom) * 0.75);
++            } else {
++                max_bytes = current_bytes > 256ULL * 1024 * 1024 ? current_bytes - 128ULL * 1024 * 1024 : 0;
++            }
++        }
++    }
++
++    void init(int dev) {
++        if (initialized) {
++            return;
++        }
++        device = dev;
++        initialized = true;
++        const char * env_mb = getenv("GGML_CUDA_MOE_CACHE_MB");
++        if (env_mb) {
++            int mb = std::max(0, atoi(env_mb));
++            max_bytes = (size_t)mb * 1024 * 1024;
++            is_elastic = false;
++        } else {
++            is_elastic = true;
++            max_bytes = 1024ULL * 1024 * 1024;
++        }
++    }
++    void * get_or_alloc(const void * host_ptr, size_t size, cudaStream_t stream, bool & out_allocated) {
++        if (!initialized) {
++            init(device);
++        }
++
++        out_allocated = false;
++        ++step_counter;
++        if (is_elastic && (step_counter % 64 == 0)) {
++            update_elastic_budget();
++        }
++        auto it = entries.find(host_ptr);
++        if (it != entries.end()) {
++            it->second.last_used = step_counter;
++            return it->second.dev_ptr;
++        }
++
++        if (max_bytes == 0 || size > max_bytes) {
++            return nullptr;
++        }
++
++        while (current_bytes + size > max_bytes && !entries.empty()) {
++            auto lru_it = entries.begin();
++            for (auto iter = entries.begin(); iter != entries.end(); ++iter) {
++                if (iter->second.last_used < lru_it->second.last_used) {
++                    lru_it = iter;
++                }
++            }
++            if (lru_it->second.dev_ptr) {
++                ggml_cuda_set_device(device);
++                CUDA_CHECK(cudaFree(lru_it->second.dev_ptr));
++            }
++            current_bytes -= lru_it->second.size;
++            entries.erase(lru_it);
++        }
++
++        ggml_cuda_set_device(device);
++        void * dev_ptr = nullptr;
++        cudaError_t err = cudaMalloc(&dev_ptr, size);
++        if (err != cudaSuccess) {
++            (void)cudaGetLastError();
++            clear();
++            return nullptr;
++        }
++
++        CUDA_CHECK(cudaMemcpyAsync(dev_ptr, host_ptr, size, cudaMemcpyHostToDevice, stream));
++
++        entry new_entry;
++        new_entry.dev_ptr = dev_ptr;
++        new_entry.size = size;
++        new_entry.last_used = step_counter;
++
++        entries[host_ptr] = new_entry;
++        current_bytes += size;
++        out_allocated = true;
++
++        return dev_ptr;
++    }
++
++    void clear() {
++        if (!entries.empty()) {
++            ggml_cuda_set_device(device);
++            for (auto & kv : entries) {
++                if (kv.second.dev_ptr) {
++                    CUDA_CHECK(cudaFree(kv.second.dev_ptr));
++                }
++            }
++            entries.clear();
++            current_bytes = 0;
++        }
++    }
++
++    ~ggml_cuda_expert_lru_cache() {
++        clear();
++    }
++};
+ 
+ struct ggml_backend_cuda_context {
+     int device;
+@@ -1479,8 +1603,11 @@ struct ggml_backend_cuda_context {
+     explicit ggml_backend_cuda_context(int device) :
+         device(device),
+         name(GGML_CUDA_NAME + std::to_string(device)) {
++        expert_cache.init(device);
+     }
+ 
++    ggml_cuda_expert_lru_cache expert_cache;
++
+     ggml_cuda_stream_context concurrent_stream_context;
+ 
+     ~ggml_backend_cuda_context();
+diff --git a/ggml/src/ggml-cuda/ggml-cuda.cu b/ggml/src/ggml-cuda/ggml-cuda.cu
+index b38a2c649..659a3b3f8 100644
+--- a/ggml/src/ggml-cuda/ggml-cuda.cu
++++ b/ggml/src/ggml-cuda/ggml-cuda.cu
+@@ -1876,6 +1876,10 @@ static bool ggml_cuda_mul_mat_id_needs_sync(const ggml_tensor * dst, const int c
+     const ggml_tensor * src0 = dst->src[0];
+     const ggml_tensor * src1 = dst->src[1];
+ 
++    if (src0->buffer && ggml_backend_buffer_is_host(src0->buffer)) {
++        return true;
++    }
++
+     if (src1->type != GGML_TYPE_F32 || dst->type != GGML_TYPE_F32) {
+         return true;
+     }
+@@ -1913,8 +1917,10 @@ static void ggml_cuda_mul_mat_id(ggml_backend_cuda_context & ctx, ggml_tensor *
+ 
+     const int cc = ggml_cuda_info().devices[ggml_cuda_get_device()].cc;
+ 
++    const bool src0_is_host = src0->buffer && ggml_backend_buffer_is_host(src0->buffer);
++
+     // [TAG_MUL_MAT_ID_CUDA_GRAPHS]
+-    if (src1->type == GGML_TYPE_F32 && dst->type == GGML_TYPE_F32) {
++    if (!src0_is_host && src1->type == GGML_TYPE_F32 && dst->type == GGML_TYPE_F32) {
+         static_assert(MMVQ_MAX_BATCH_SIZE == MMVF_MAX_BATCH_SIZE);
+         if (ne2 <= MMVQ_MAX_BATCH_SIZE) {
+             if (ggml_is_quantized(src0->type)) {
+@@ -2017,6 +2023,19 @@ static void ggml_cuda_mul_mat_id(ggml_backend_cuda_context & ctx, ggml_tensor *
+         src0_slice.view_src = dst->src[0]; // non-const pointer to src0
+         src0_slice.data     = (char *) src0->data + i02*nb02;
+ 
++        ggml_cuda_pool_alloc<char> src0_dev_buf(ctx.pool());
++        if (src0_is_host) {
++            const size_t src0_slice_bytes = ggml_nbytes(&src0_slice);
++            bool allocated = false;
++            void * cached_ptr = ctx.expert_cache.get_or_alloc(src0_slice.data, src0_slice_bytes, stream, allocated);
++            if (cached_ptr) {
++                src0_slice.data = cached_ptr;
++            } else {
++                src0_dev_buf.alloc(src0_slice_bytes);
++                CUDA_CHECK(cudaMemcpyAsync(src0_dev_buf.ptr, src0_slice.data, src0_slice_bytes, cudaMemcpyHostToDevice, stream));
++                src0_slice.data = src0_dev_buf.ptr;
++            }
++        }
+         ggml_tensor src1_slice;
+         memset(&src1_slice, 0, sizeof(src1_slice));
+         src1_slice.buffer = src1->buffer;
+@@ -5518,11 +5537,14 @@ ggml_backend_reg_t ggml_backend_cuda_reg() {
+         std::lock_guard<std::mutex> lock(mutex);
+         if (!initialized) {
+             ggml_backend_cuda_reg_context * ctx = new ggml_backend_cuda_reg_context;
+-            const int min_batch_size = getenv("GGML_OP_OFFLOAD_MIN_BATCH") ? atoi(getenv("GGML_OP_OFFLOAD_MIN_BATCH")) : 32;
+-
+             const ggml_cuda_device_info & info = ggml_cuda_info();
+             const bool virtual_devices = info.device_count > info.physical_device_count;
+ 
++            int min_batch_size = 32;
++            const char * env_min_batch = getenv("GGML_OP_OFFLOAD_MIN_BATCH");
++            if (env_min_batch) {
++                min_batch_size = atoi(env_min_batch);
++            }
+             for (int i = 0; i < info.device_count; i++) {
+                 const int physical_id = info.devices[i].physical_device;
+ 
+-- 
+2.40.0.windows.1
+

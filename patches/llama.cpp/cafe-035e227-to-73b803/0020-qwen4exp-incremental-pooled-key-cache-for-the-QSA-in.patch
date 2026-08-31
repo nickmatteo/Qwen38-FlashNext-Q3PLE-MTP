@@ -1,0 +1,648 @@
+From 472b758426db93206c2df130ef0f994721711b1a Mon Sep 17 00:00:00 2001
+From: Joakim Hansson <joakim.hansson87@gmail.com>
+Date: Thu, 27 Aug 2026 23:37:19 +0000
+Subject: [PATCH 20/36] qwen4exp: incremental pooled-key cache for the QSA
+ indexer
+
+The block-sparse attention indexer scored queries against block summary
+keys (mean of each 4-token block's raw keys, normalized, roped) that were
+regathered and recomputed over the whole context every token, in all 12
+QSA layers - the dominant remaining depth cost.
+
+Only complete blocks are ever scored (incomplete tails ride the bias
+term), and a complete block's members never change, so the summaries are
+cached: one f32 row per position block per layer, written by the graph
+via set_rows. Per ubatch only the freshly completed blocks (at most one
+per decode step) are pooled/normed/roped; the score reads the cache.
+
+Validity is a per-sequence block watermark clamped by seq_rm/seq_cp/
+seq_add/seq_div/clear and reset by full state loads; speculative
+checkpoint replay (PARTIAL_ONLY) leaves the indexer cells untouched and
+its rollback arrives through seq_rm, so rejection costs nothing. Stale
+rows are finite and masked by the -inf bias, exactly like the previous
+garbage partial-block pools. Single-stream memories only; multi-stream
+and LLAMA_QSA_NO_POOLED_CACHE=1 fall back to the full recompute (whose
+blk_cells/blk_pos inputs are now only created on that path - an
+unreferenced graph input is never allocated and must not be filled).
+
+Strix Halo (RADV), plain decode: 25.7/25.2/24.2/23.5 t/s at 4k/8k/16k/
+32k vs 25.1/24.0/22.4/20.0 (+17% at 32k; the depth slope mostly
+flattens). MTP-speculated 5.9k summary: 31.7 -> 35.0 t/s. Greedy output
+bit-identical shallow; deep divergence equals the kernel-order noise
+control. Spec rollback validated over multi-turn cache-reuse requests.
+
+Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01AUwCGmqs39JdaEFjBmtvDa
+---
+ src/llama-memory-hybrid-idx.cpp | 240 ++++++++++++++++++++++++++++++--
+ src/llama-memory-hybrid-idx.h   |  51 ++++++-
+ src/models/qwen4exp.cpp         | 125 +++++++++++++----
+ 3 files changed, 379 insertions(+), 37 deletions(-)
+
+diff --git a/src/llama-memory-hybrid-idx.cpp b/src/llama-memory-hybrid-idx.cpp
+index 4f8c65247..0b23c32c1 100644
+--- a/src/llama-memory-hybrid-idx.cpp
++++ b/src/llama-memory-hybrid-idx.cpp
+@@ -5,6 +5,8 @@
+ #include "llama-io.h"
+ #include "llama-model.h"
+ 
++#include "ggml-backend.h"
++
+ #include <algorithm>
+ #include <cassert>
+ #include <cmath>
+@@ -62,6 +64,101 @@ llama_memory_hybrid_idx::llama_memory_hybrid_idx(
+     const uint32_t n_win = model.hparams.ple_ngram_size > 0 ? model.hparams.ple_ngram_size - 1 : 0;
+ 
+     ple_hist_keep_n = n_win + n_rs_seq;
++
++    // [TAG_QSA_POOLED_CACHE] one f32 row per position block per layer; single-stream
++    // memories only (a unified cache shares one stream; block rows are position-indexed)
++    if (mem_idx && mem_idx->get_n_stream() == 1) {
++        uint32_t ratio = 0;
++        for (uint32_t il = 0; il < model.hparams.n_layer(); ++il) {
++            if (model.hparams.dsv4_compress_ratios[il] > 0) {
++                ratio = model.hparams.dsv4_compress_ratios[il];
++                break;
++            }
++        }
++
++        const uint32_t idx_dim = model.hparams.indexer_head_size;
++
++        if (ratio > 0 && idx_dim > 0) {
++            // + 1 so a partial trailing block has a slot, + 1 dustbin row for padded writes
++            pooled_rows = kv_size/ratio + 2;
++
++            ggml_init_params ip = {
++                /*.mem_size   =*/ 2*model.hparams.n_layer()*ggml_tensor_overhead(),
++                /*.mem_buffer =*/ nullptr,
++                /*.no_alloc   =*/ true,
++            };
++            pooled_ctx.reset(ggml_init(ip));
++
++            ggml_backend_buffer_type_t buft = nullptr;
++            for (uint32_t il = 0; il < model.hparams.n_layer(); ++il) {
++                // the idx cache is filtered to the QSA layers; get_k_storage on any other
++                // layer is out of range
++                if (model.hparams.dsv4_compress_ratios[il] == 0) {
++                    continue;
++                }
++                ggml_tensor * k = mem_idx->get_k_storage(il);
++                if (k == nullptr) {
++                    continue;
++                }
++                if (buft == nullptr) {
++                    buft = ggml_backend_buffer_get_type(k->buffer);
++                }
++                ggml_tensor * t = ggml_new_tensor_2d(pooled_ctx.get(), GGML_TYPE_F32, idx_dim, pooled_rows);
++                ggml_format_name(t, "idx_pooled_l%u", il);
++                pooled_k[(int32_t) il] = t;
++            }
++
++            if (!pooled_k.empty()) {
++                pooled_buf.reset(ggml_backend_alloc_ctx_tensors_from_buft(pooled_ctx.get(), buft));
++                GGML_ASSERT(pooled_buf && "failed to allocate the pooled indexer key cache");
++                // stale rows are read (and masked); they must be finite, never uninitialized
++                ggml_backend_buffer_clear(pooled_buf.get(), 0);
++
++                LLAMA_LOG_INFO("%s: pooled indexer key cache, %zu layers x %u rows, %.2f MiB\n",
++                        __func__, pooled_k.size(), pooled_rows,
++                        ggml_backend_buffer_get_size(pooled_buf.get())/1024.0/1024.0);
++            }
++        }
++    }
++}
++
++ggml_tensor * llama_memory_hybrid_idx::get_pooled_k(int32_t il) const {
++    const auto it = pooled_k.find(il);
++    return it == pooled_k.end() ? nullptr : it->second;
++}
++
++int64_t & llama_memory_hybrid_idx::pooled_valid(llama_seq_id seq_id) const {
++    return pooled_w[seq_id];
++}
++
++void llama_memory_hybrid_idx::pooled_rm(llama_seq_id seq_id, llama_pos p0, llama_pos p1) {
++    if (pooled_k.empty()) {
++        return;
++    }
++    if (p0 <= 0 && p1 < 0) {
++        pooled_w[seq_id] = 0;
++        return;
++    }
++    // blocks at or beyond the first removed position lose members; earlier rows keep their
++    // content (removals only ever drop the tail or a middle range, never rewrite the prefix)
++    uint32_t ratio = 0;
++    for (const auto & [il, t] : pooled_k) {
++        GGML_UNUSED(t);
++        ratio = hparams_idx.dsv4_compress_ratios[il];
++        break;
++    }
++    const int64_t blk = ratio > 0 ? std::max<llama_pos>(p0, 0)/ratio : 0;
++
++    auto & w = pooled_w[seq_id];
++    w = std::min(w, blk);
++}
++
++void llama_memory_hybrid_idx::pooled_reset(llama_seq_id seq_id) {
++    if (seq_id < 0) {
++        pooled_w.clear();
++    } else {
++        pooled_w[seq_id] = 0;
++    }
+ }
+ 
+ llama_memory_context_ptr llama_memory_hybrid_idx::init_batch(llama_batch_allocr & balloc, uint32_t n_ubatch, bool embd_all) {
+@@ -148,6 +245,9 @@ void llama_memory_hybrid_idx::clear(bool data) {
+ 
+     // [TAG_PLE_HISTORY] every sequence is gone, so no window is trusted any more
+     ple_hist.clear();
++
++    // [TAG_QSA_POOLED_CACHE]
++    pooled_reset(-1);
+ }
+ 
+ bool llama_memory_hybrid_idx::seq_rm(llama_seq_id seq_id, llama_pos p0, llama_pos p1) {
+@@ -163,6 +263,9 @@ bool llama_memory_hybrid_idx::seq_rm(llama_seq_id seq_id, llama_pos p0, llama_po
+ 
+     ple_hist_rm(seq_id, p0, p1);
+ 
++    // [TAG_QSA_POOLED_CACHE]
++    pooled_rm(seq_id, p0, p1);
++
+     return get_mem_attn()->seq_rm(seq_id, p0, p1);
+ }
+ 
+@@ -174,6 +277,10 @@ void llama_memory_hybrid_idx::seq_cp(llama_seq_id seq_id_src, llama_seq_id seq_i
+     }
+ 
+     ple_hist_cp(seq_id_src, seq_id_dst, p0, p1);
++
++    // [TAG_QSA_POOLED_CACHE] rows are shared in the single-stream cache; the copy's blocks
++    // are refilled from its own cells on its first ubatch
++    pooled_reset(seq_id_dst);
+ }
+ 
+ void llama_memory_hybrid_idx::seq_keep(llama_seq_id seq_id) {
+@@ -184,6 +291,11 @@ void llama_memory_hybrid_idx::seq_keep(llama_seq_id seq_id) {
+     }
+ 
+     ple_hist_keep(seq_id);
++
++    // [TAG_QSA_POOLED_CACHE] only seq_id's rows survive as trusted
++    const int64_t keep = pooled_w.count(seq_id) ? pooled_w[seq_id] : 0;
++    pooled_w.clear();
++    pooled_w[seq_id] = keep;
+ }
+ 
+ void llama_memory_hybrid_idx::seq_add(llama_seq_id seq_id, llama_pos p0, llama_pos p1, llama_pos shift) {
+@@ -194,6 +306,9 @@ void llama_memory_hybrid_idx::seq_add(llama_seq_id seq_id, llama_pos p0, llama_p
+     }
+ 
+     ple_hist_add(seq_id, p0, p1, shift);
++
++    // [TAG_QSA_POOLED_CACHE] shifting positions remaps every block
++    pooled_reset(seq_id);
+ }
+ 
+ void llama_memory_hybrid_idx::seq_div(llama_seq_id seq_id, llama_pos p0, llama_pos p1, int d) {
+@@ -204,6 +319,9 @@ void llama_memory_hybrid_idx::seq_div(llama_seq_id seq_id, llama_pos p0, llama_p
+     }
+ 
+     ple_hist_div(seq_id, p0, p1);
++
++    // [TAG_QSA_POOLED_CACHE]
++    pooled_reset(seq_id);
+ }
+ 
+ std::map<ggml_backend_buffer_type_t, size_t> llama_memory_hybrid_idx::memory_breakdown() const {
+@@ -497,6 +615,14 @@ void llama_memory_hybrid_idx::state_read(llama_io_read_i & io, llama_seq_id seq_
+ 
+     // [TAG_PLE_HISTORY] must mirror the write order above
+     ple_hist_state_read(io, seq_id);
++
++    // [TAG_QSA_POOLED_CACHE] a full restore rewrites the indexer cells with arbitrary
++    // content, so no pooled row can be trusted; the next ubatch refills the whole range.
++    // A PARTIAL_ONLY restore (speculative checkpoint replay) leaves the cells untouched
++    // and its rollback arrives through seq_rm, which already clamped the watermark.
++    if ((flags & LLAMA_STATE_SEQ_FLAGS_PARTIAL_ONLY) == 0) {
++        pooled_reset(seq_id);
++    }
+ }
+ 
+ llama_kv_cache * llama_memory_hybrid_idx::get_mem_idx() const {
+@@ -587,13 +713,49 @@ uint32_t llama_memory_hybrid_idx_context::get_ple_hist_keep() const {
+     return mem->ple_hist_keep_n;
+ }
+ 
++ggml_tensor * llama_memory_hybrid_idx_context::get_pooled_k(int32_t il) const {
++    return mem != nullptr && get_idx() != nullptr ? mem->get_pooled_k(il) : nullptr;
++}
++
++uint32_t llama_memory_hybrid_idx_context::get_pooled_rows() const {
++    return mem != nullptr ? mem->get_pooled_rows() : 0;
++}
++
++uint32_t llama_memory_hybrid_idx_context::qsa_pooled_n_dirty_max(const llama_ubatch & ubatch, uint32_t ratio) const {
++    GGML_ASSERT(ratio > 0);
++    GGML_ASSERT(mem != nullptr);
++
++    // the reserve pass builds worst-case graphs from a mock ubatch with no seq/pos data;
++    // give it the per-ubatch bound (the refill after a state load resizes on a live ubatch)
++    if (ubatch.seq_id == nullptr || ubatch.seq_id[0] == nullptr || ubatch.pos == nullptr) {
++        return (ubatch.n_tokens + ratio - 1)/ratio + 1;
++    }
++
++    // single-stream memories only (get_pooled_k gates the callers); like the block tables,
++    // the watermark follows the first token's sequence
++    const llama_seq_id seq = ubatch.seq_id[0][0];
++
++    llama_pos q_max = -1;
++    for (uint32_t i = 0; i < ubatch.n_tokens; ++i) {
++        q_max = std::max(q_max, ubatch.pos[i]);
++    }
++
++    const int64_t n_complete = (int64_t) (q_max + 1)/ratio;
++    const int64_t w          = std::min(mem->pooled_valid(seq), n_complete);
++
++    return (uint32_t) std::max<int64_t>(1, n_complete - w);
++}
++
+ void llama_memory_hybrid_idx_context::set_input_qsa(
+         ggml_tensor * cell_blk,
+         ggml_tensor * blk_cells,
+         ggml_tensor * blk_pos,
+         ggml_tensor * bias,
+         const llama_ubatch * ubatch,
+-        uint32_t ratio) const {
++        uint32_t ratio,
++        ggml_tensor * dirty_cells,
++        ggml_tensor * dirty_pos,
++        ggml_tensor * dirty_rows) const {
+     GGML_ASSERT(ratio > 0);
+     GGML_ASSERT(mem != nullptr && mem->get_mem_idx() != nullptr);
+ 
+@@ -601,28 +763,38 @@ void llama_memory_hybrid_idx_context::set_input_qsa(
+ 
+     const int64_t n_kv     = cell_blk->ne[0];
+     const int64_t n_ns     = cell_blk->ne[1];        // streams in this ubatch
+-    const int64_t n_blocks = blk_pos->ne[0]/(4*n_ns);
+     const int64_t n_tokens = ubatch->n_tokens;
+     const int64_t r        = ratio;
+ 
++    // same formula as the graph; blk_pos may be null on the pooled path
++    const int64_t n_blocks = (n_kv + r - 1)/r;
++
+     GGML_ASSERT(n_tokens % n_ns == 0);
+     const int64_t n_tps = n_tokens/n_ns;             // tokens per stream
+ 
+     int32_t * dst_cell_blk  = (int32_t *) cell_blk->data;
+-    int32_t * dst_blk_cells = (int32_t *) blk_cells->data;
+-    int32_t * dst_blk_pos   = (int32_t *) blk_pos->data;
+     float   * dst_bias      = (float   *) bias->data;
+ 
++    // [TAG_QSA_POOLED_CACHE] the pooled path drops blk_cells/blk_pos from the graph (the
++    // dirty tables replace them), so they may be null here; the block map is still needed
++    // for the dirty fill, so it is built in a local buffer either way
++    int32_t * dst_blk_cells = blk_cells != nullptr ? (int32_t *) blk_cells->data : nullptr;
++    int32_t * dst_blk_pos   = blk_pos   != nullptr ? (int32_t *) blk_pos->data   : nullptr;
++
+     // block b covers [b*ratio, (b+1)*ratio), so its first token is at b*ratio
+     // all mrope sections carry it: exact for text, approximate for images
+-    for (int64_t sec = 0; sec < 4; ++sec) {
+-        for (int64_t s = 0; s < n_ns; ++s) {
+-            for (int64_t b = 0; b < n_blocks; ++b) {
+-                dst_blk_pos[sec*(n_blocks*n_ns) + s*n_blocks + b] = (int32_t) (b*r);
++    if (dst_blk_pos != nullptr) {
++        for (int64_t sec = 0; sec < 4; ++sec) {
++            for (int64_t s = 0; s < n_ns; ++s) {
++                for (int64_t b = 0; b < n_blocks; ++b) {
++                    dst_blk_pos[sec*(n_blocks*n_ns) + s*n_blocks + b] = (int32_t) (b*r);
++                }
+             }
+         }
+     }
+ 
++    std::vector<int32_t> loc_blk_cells(r*n_blocks);
++
+     // one pass per stream: cell j is a different token in each, so no mapping is shared
+     std::vector<int32_t> blk_of(n_kv);
+     std::vector<int32_t> filled(n_blocks);
+@@ -632,8 +804,8 @@ void llama_memory_hybrid_idx_context::set_input_qsa(
+         const llama_seq_id seq_of_stream = ubatch->seq_id[s*n_tps][0];
+         const auto & cells = mem->get_mem_idx()->get_cells(seq_of_stream);
+ 
+-        int32_t * cur_cell_blk  = dst_cell_blk  + s*n_kv;
+-        int32_t * cur_blk_cells = dst_blk_cells + s*(r*n_blocks);
++        int32_t * cur_cell_blk  = dst_cell_blk + s*n_kv;
++        int32_t * cur_blk_cells = loc_blk_cells.data();
+ 
+         // an incomplete block cannot be pooled; the bias below forces those tail cells in
+         // -1 means no usable block, and block 0 only keeps the gather in range
+@@ -665,6 +837,54 @@ void llama_memory_hybrid_idx_context::set_input_qsa(
+             cur_cell_blk[j] = blk_of[j] < 0 ? 0 : blk_of[j];
+         }
+ 
++        if (dst_blk_cells != nullptr) {
++            std::copy(loc_blk_cells.begin(), loc_blk_cells.end(), dst_blk_cells + s*(r*n_blocks));
++        }
++
++        // [TAG_QSA_POOLED_CACHE] resolve which blocks the graph must (re)pool this ubatch:
++        // the range from the sequence's watermark to its last complete block. Complete
++        // blocks are immutable, so rows below the watermark stay valid; rollbacks arrive
++        // as seq_rm/state_read, which clamp the watermark before this runs.
++        if (dirty_cells != nullptr) {
++            GGML_ASSERT(n_ns == 1 && "the pooled cache path is single-stream only");
++
++            const int64_t n_dirty_max = dirty_rows->ne[0];
++            const int64_t dustbin     = (int64_t) mem->get_pooled_rows() - 1;
++
++            int32_t * dst_d_cells = (int32_t *) dirty_cells->data;
++            int32_t * dst_d_pos   = (int32_t *) dirty_pos->data;
++            int64_t * dst_d_rows  = (int64_t *) dirty_rows->data;
++
++            int64_t n_complete = 0;
++            for (int64_t b = n_blocks - 1; b >= 0; --b) {
++                if (filled[b] == r) {
++                    n_complete = b + 1;
++                    break;
++                }
++            }
++
++            auto & w = mem->pooled_valid(seq_of_stream);
++            w = std::min(w, n_complete);
++
++            const int64_t n_dirty = n_complete - w;
++            GGML_ASSERT(n_dirty <= n_dirty_max && "dirty tables sized at graph build; see qsa_pooled_n_dirty_max");
++
++            for (int64_t i = 0; i < n_dirty_max; ++i) {
++                const bool live = i < n_dirty;
++                const int64_t b = w + i;
++
++                dst_d_rows[i] = live ? b : dustbin;
++                for (int64_t sec = 0; sec < 4; ++sec) {
++                    dst_d_pos[sec*n_dirty_max + i] = live ? (int32_t) (b*r) : 0;
++                }
++                for (int64_t j = 0; j < r; ++j) {
++                    dst_d_cells[i*r + j] = live ? cur_blk_cells[b*r + j] : 0;
++                }
++            }
++
++            w = n_complete;
++        }
++
+         for (int64_t ii = 0; ii < n_tps; ++ii) {
+             const int64_t      i      = s*n_tps + ii;
+             const llama_seq_id seq_id = ubatch->seq_id[i][0];
+diff --git a/src/llama-memory-hybrid-idx.h b/src/llama-memory-hybrid-idx.h
+index 2cc5f5dfe..32edf23fa 100644
+--- a/src/llama-memory-hybrid-idx.h
++++ b/src/llama-memory-hybrid-idx.h
+@@ -101,6 +101,24 @@ public:
+     // the n-gram rows for the first tokens decoded after every speculative rollback)
+     uint32_t ple_hist_keep_n = 0;
+ 
++    // [TAG_QSA_POOLED_CACHE]
++    // Cache of the indexer's block summary keys (mean-pooled, normalized, roped), one f32
++    // row per position block, written by the graph via set_rows. Only COMPLETE blocks are
++    // ever scored (incomplete tails ride the bias), and a complete block's members never
++    // change, so rows are write-once per content epoch. Validity is a per-sequence block
++    // watermark: rows < watermark hold the current content's summaries. Rollback safety is
++    // by construction: seq_rm clamps the watermark and replay recomputes the range.
++    // Rows at or beyond the watermark may hold stale-but-finite garbage; their scores are
++    // masked by the -inf bias exactly like today's partial-block pools.
++
++    // pooled key tensor for layer il, or nullptr (no indexer / multi-stream / disabled)
++    ggml_tensor * get_pooled_k(int32_t il) const;
++
++    uint32_t get_pooled_rows() const { return pooled_rows; }   // rows per stream, incl. trailing dustbin row
++
++    // blocks of seq_id whose pooled rows are known valid; mutable via a const context like ple_hist
++    int64_t & pooled_valid(llama_seq_id seq_id) const;
++
+ private:
+     // the indexer cache holds one key head per layer, so it needs its own hparams:
+     // llama_kv_cache keeps a reference to what it is given
+@@ -120,6 +138,19 @@ private:
+ 
+     void ple_hist_state_write(llama_io_write_i & io, llama_seq_id seq_id) const;
+     void ple_hist_state_read (llama_io_read_i  & io, llama_seq_id seq_id);
++
++    // [TAG_QSA_POOLED_CACHE] storage + watermarks; empty unless the model has an indexer
++    ggml_context_ptr        pooled_ctx;
++    ggml_backend_buffer_ptr pooled_buf;
++    std::map<int32_t, ggml_tensor *> pooled_k;
++
++    uint32_t pooled_rows = 0;
++
++    mutable std::unordered_map<llama_seq_id, int64_t> pooled_w;
++
++    // clamp helpers, one per llama_memory_i operation that can invalidate rows
++    void pooled_rm(llama_seq_id seq_id, llama_pos p0, llama_pos p1);
++    void pooled_reset(llama_seq_id seq_id);   // -1 resets every sequence
+ };
+ 
+ class llama_memory_hybrid_idx_context : public llama_memory_hybrid_context {
+@@ -175,8 +206,26 @@ public:
+     //   blk_cells I32 [ratio*n_blocks, ns] cells making up each block
+     //   blk_pos   I32 [4*n_blocks*ns]      mrope position rows of each block's first token
+     //   bias      F32 [n_kv, n_tokens/ns, ns] -inf where invisible, large where always visible
++    // [TAG_QSA_POOLED_CACHE] the dirty_* tensors are optional: when given, the fill also
++    // resolves which blocks must be (re)pooled this ubatch — the range from the sequence's
++    // watermark to its last complete block — and advances the watermark.
++    //   dirty_cells I32 [ratio*n_dirty_max, ns] cells of each block to (re)pool, 0-padded
++    //   dirty_pos   I32 [4*n_dirty_max*ns]      mrope position rows of those blocks
++    //   dirty_rows  I64 [n_dirty_max*ns]        pooled-cache rows to write, dustbin-padded
+     void set_input_qsa(ggml_tensor * cell_blk, ggml_tensor * blk_cells, ggml_tensor * blk_pos,
+-                       ggml_tensor * bias, const llama_ubatch * ubatch, uint32_t ratio) const;
++                       ggml_tensor * bias, const llama_ubatch * ubatch, uint32_t ratio,
++                       ggml_tensor * dirty_cells = nullptr, ggml_tensor * dirty_pos = nullptr,
++                       ggml_tensor * dirty_rows = nullptr) const;
++
++    // [TAG_QSA_POOLED_CACHE] pooled tensor for il, or nullptr when the cache is unavailable
++    // (no indexer, multi-stream memory, or a non-batch context)
++    ggml_tensor * get_pooled_k(int32_t il) const;
++
++    uint32_t get_pooled_rows() const;
++
++    // capacity the dirty tables need for this ubatch: completed blocks plus pending refill
++    // below the watermark; stable at 1 during steady decode so graph reuse holds
++    uint32_t qsa_pooled_n_dirty_max(const llama_ubatch & ubatch, uint32_t ratio) const;
+ 
+ private:
+     const llama_memory_hybrid_idx * mem = nullptr;
+diff --git a/src/models/qwen4exp.cpp b/src/models/qwen4exp.cpp
+index d718e0d2f..346cf4145 100644
+--- a/src/models/qwen4exp.cpp
++++ b/src/models/qwen4exp.cpp
+@@ -721,7 +721,8 @@ public:
+ 
+     void set_input(const llama_ubatch * ubatch) override {
+         mctx->get_idx()->set_input_k_idxs(k_idxs, ubatch);
+-        mctx->set_input_qsa(cell_blk, blk_cells, blk_pos, bias, ubatch, ratio);
++        mctx->set_input_qsa(cell_blk, blk_cells, blk_pos, bias, ubatch, ratio,
++                dirty_cells, dirty_pos, dirty_rows);
+     }
+ 
+     // the idx cache pads n_kv like the attention cache, so the tensor shapes are stable
+@@ -744,6 +745,12 @@ public:
+         res &= cell_blk->ne[1] == (int64_t) mctx_new->get_n_stream();
+         res &= bias->ne[1] * bias->ne[2] == (int64_t) params.ubatch.n_tokens;
+ 
++        // [TAG_QSA_POOLED_CACHE] the dirty tables must hold this ubatch's (re)pool range;
++        // steady decode needs at most one block, so the capacity is stable at 1 there
++        if (dirty_rows != nullptr) {
++            res &= dirty_rows->ne[0] == (int64_t) mctx_new->qsa_pooled_n_dirty_max(params.ubatch, ratio);
++        }
++
+         return res;
+     }
+ 
+@@ -754,6 +761,11 @@ public:
+     ggml_tensor * blk_pos   = nullptr;   // I32 [4*n_blocks*n_stream]
+     ggml_tensor * bias      = nullptr;   // F32 [n_kv, n_tokens/n_stream, n_stream]
+ 
++    // [TAG_QSA_POOLED_CACHE] present only when the pooled cache path is active
++    ggml_tensor * dirty_cells = nullptr; // I32 [ratio*n_dirty_max, 1]
++    ggml_tensor * dirty_pos   = nullptr; // I32 [4*n_dirty_max]
++    ggml_tensor * dirty_rows  = nullptr; // I64 [n_dirty_max]
++
+     const llama_memory_hybrid_idx_context * mctx;
+     const uint32_t ratio;
+ };
+@@ -788,15 +800,36 @@ ggml_tensor * llama_model_qwen4exp::graph::build_qsa_top_k(
+ 
+         qsa->k_idxs    = mctx_idx->build_input_k_idxs(ctx0, ubatch);
+         qsa->cell_blk  = ggml_new_tensor_2d(ctx0, GGML_TYPE_I32, n_kv, n_stream);
+-        qsa->blk_cells = ggml_new_tensor_2d(ctx0, GGML_TYPE_I32, r*n_blocks, n_stream);
+-        qsa->blk_pos   = ggml_new_tensor_1d(ctx0, GGML_TYPE_I32, 4*n_blocks*n_stream);
+         qsa->bias      = ggml_new_tensor_3d(ctx0, GGML_TYPE_F32, n_kv, n_tps, n_stream);
+ 
+         ggml_set_input(qsa->cell_blk);
+-        ggml_set_input(qsa->blk_cells);
+-        ggml_set_input(qsa->blk_pos);
+         ggml_set_input(qsa->bias);
+ 
++        // [TAG_QSA_POOLED_CACHE] complete blocks' summaries are cached; per ubatch only the
++        // freshly completed blocks (plus any pending refill after a full state load) are
++        // pooled/normed/roped, and the score reads the cache. The full-recompute tables are
++        // then dead graph inputs, so they are not created at all (an unreferenced input is
++        // never allocated, and filling it would write through a null pointer).
++        // Kill switch for A/B testing.
++        if (mctx_hyb->get_pooled_k(il) != nullptr && n_stream == 1 &&
++            getenv("LLAMA_QSA_NO_POOLED_CACHE") == nullptr) {
++            const int64_t n_dirty_max = mctx_hyb->qsa_pooled_n_dirty_max(ubatch, (uint32_t) r);
++
++            qsa->dirty_cells = ggml_new_tensor_2d(ctx0, GGML_TYPE_I32, r*n_dirty_max, 1);
++            qsa->dirty_pos   = ggml_new_tensor_1d(ctx0, GGML_TYPE_I32, 4*n_dirty_max);
++            qsa->dirty_rows  = ggml_new_tensor_1d(ctx0, GGML_TYPE_I64, n_dirty_max);
++
++            ggml_set_input(qsa->dirty_cells);
++            ggml_set_input(qsa->dirty_pos);
++            ggml_set_input(qsa->dirty_rows);
++        } else {
++            qsa->blk_cells = ggml_new_tensor_2d(ctx0, GGML_TYPE_I32, r*n_blocks, n_stream);
++            qsa->blk_pos   = ggml_new_tensor_1d(ctx0, GGML_TYPE_I32, 4*n_blocks*n_stream);
++
++            ggml_set_input(qsa->blk_cells);
++            ggml_set_input(qsa->blk_pos);
++        }
++
+         inp = qsa.get();
+         qsa_shared = inp;
+         res->add_input(std::move(qsa));
+@@ -816,29 +849,69 @@ ggml_tensor * llama_model_qwen4exp::graph::build_qsa_top_k(
+     ggml_tensor * k_all = mctx_idx->get_k(ctx0, il);
+     k_all = ggml_view_3d(ctx0, k_all, idx_dim, n_kv, n_stream, k_all->nb[2], k_all->nb[3], 0);
+ 
+-    // gathers per stream: blk_cells row s indexes stream s's own cells
+-    ggml_tensor * members = ggml_get_rows(ctx0, k_all, inp->blk_cells);
+-    members = ggml_reshape_4d(ctx0, members, idx_dim, r, n_blocks, n_stream);
+-
+-    // mean over the block members; r is small, so summing slices beats a transpose plus sum_rows
+     ggml_tensor * pooled = nullptr;
+-    for (int64_t i = 0; i < r; ++i) {
+-        ggml_tensor * slice = ggml_cont(ctx0,
+-                ggml_view_3d(ctx0, members, idx_dim, n_blocks, n_stream,
+-                        members->nb[2], members->nb[3], i*members->nb[1]));
+-        pooled = pooled ? ggml_add(ctx0, pooled, slice) : slice;
+-    }
+-    pooled = ggml_scale(ctx0, pooled, 1.0f/(float) r);
+-    cb(pooled, "indexer_k_pooled", il);
+ 
+-    // rope wants [n_dims, n_head, n_tokens]: lay every stream's blocks flat, split after.
+-    pooled = ggml_reshape_3d(ctx0, pooled, idx_dim, 1, n_blocks*n_stream);
+-    pooled = build_norm(pooled, model.layers[il].index_k_norm, nullptr, LLM_NORM_RMS, il);
+-    pooled = ggml_rope_multi(ctx0, pooled, inp->blk_pos, nullptr,
+-            n_rot, sections, rope_type, n_ctx_orig, freq_base, freq_scale,
+-            ext_factor, attn_factor, beta_fast, beta_slow);
+-    pooled = ggml_reshape_3d(ctx0, pooled, idx_dim, n_blocks, n_stream);
+-    cb(pooled, "indexer_k", il);
++    if (inp->dirty_rows != nullptr) {
++        // [TAG_QSA_POOLED_CACHE] pool only this ubatch's dirty blocks and scatter them into
++        // the cache; the score then reads the cache. Rows of incomplete blocks hold stale
++        // (finite) data and are masked by the -inf bias, exactly like the garbage partial
++        // pools of the full recompute below.
++        ggml_tensor * store = mctx_hyb->get_pooled_k(il);
++        GGML_ASSERT(store != nullptr);
++
++        const int64_t n_dirty_max = inp->dirty_rows->ne[0];
++
++        ggml_tensor * members = ggml_get_rows(ctx0, k_all, inp->dirty_cells);
++        members = ggml_reshape_4d(ctx0, members, idx_dim, r, n_dirty_max, 1);
++
++        ggml_tensor * fresh = nullptr;
++        for (int64_t i = 0; i < r; ++i) {
++            ggml_tensor * slice = ggml_cont(ctx0,
++                    ggml_view_3d(ctx0, members, idx_dim, n_dirty_max, 1,
++                            members->nb[2], members->nb[3], i*members->nb[1]));
++            fresh = fresh ? ggml_add(ctx0, fresh, slice) : slice;
++        }
++        fresh = ggml_scale(ctx0, fresh, 1.0f/(float) r);
++        cb(fresh, "indexer_k_pooled", il);
++
++        fresh = ggml_reshape_3d(ctx0, fresh, idx_dim, 1, n_dirty_max);
++        fresh = build_norm(fresh, model.layers[il].index_k_norm, nullptr, LLM_NORM_RMS, il);
++        fresh = ggml_rope_multi(ctx0, fresh, inp->dirty_pos, nullptr,
++                n_rot, sections, rope_type, n_ctx_orig, freq_base, freq_scale,
++                ext_factor, attn_factor, beta_fast, beta_slow);
++        fresh = ggml_reshape_2d(ctx0, fresh, idx_dim, n_dirty_max);
++
++        ggml_tensor * store_view = ggml_view_2d(ctx0, store,
++                idx_dim, store->ne[1], store->nb[1], 0);
++        ggml_build_forward_expand(gf, ggml_set_rows(ctx0, store_view, fresh, inp->dirty_rows));
++
++        pooled = ggml_view_3d(ctx0, store, idx_dim, n_blocks, 1,
++                store->nb[1], store->nb[1]*n_blocks, 0);
++        cb(pooled, "indexer_k", il);
++    } else {
++        // gathers per stream: blk_cells row s indexes stream s's own cells
++        ggml_tensor * members = ggml_get_rows(ctx0, k_all, inp->blk_cells);
++        members = ggml_reshape_4d(ctx0, members, idx_dim, r, n_blocks, n_stream);
++
++        // mean over the block members; r is small, so summing slices beats a transpose plus sum_rows
++        for (int64_t i = 0; i < r; ++i) {
++            ggml_tensor * slice = ggml_cont(ctx0,
++                    ggml_view_3d(ctx0, members, idx_dim, n_blocks, n_stream,
++                            members->nb[2], members->nb[3], i*members->nb[1]));
++            pooled = pooled ? ggml_add(ctx0, pooled, slice) : slice;
++        }
++        pooled = ggml_scale(ctx0, pooled, 1.0f/(float) r);
++        cb(pooled, "indexer_k_pooled", il);
++
++        // rope wants [n_dims, n_head, n_tokens]: lay every stream's blocks flat, split after.
++        pooled = ggml_reshape_3d(ctx0, pooled, idx_dim, 1, n_blocks*n_stream);
++        pooled = build_norm(pooled, model.layers[il].index_k_norm, nullptr, LLM_NORM_RMS, il);
++        pooled = ggml_rope_multi(ctx0, pooled, inp->blk_pos, nullptr,
++                n_rot, sections, rope_type, n_ctx_orig, freq_base, freq_scale,
++                ext_factor, attn_factor, beta_fast, beta_slow);
++        pooled = ggml_reshape_3d(ctx0, pooled, idx_dim, n_blocks, n_stream);
++        cb(pooled, "indexer_k", il);
++    }
+ 
+     ggml_tensor * q = build_lora_mm(model.layers[il].index_q_proj, cur);
+     q = ggml_reshape_3d(ctx0, q, idx_dim, n_idx_h, n_tokens);
+-- 
+2.40.0.windows.1
+

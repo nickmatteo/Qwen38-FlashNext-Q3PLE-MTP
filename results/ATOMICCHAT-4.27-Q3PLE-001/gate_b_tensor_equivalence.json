@@ -1,0 +1,457 @@
+{
+  "allowed_different_tensors": [
+    "per_layer_token_embd.weight"
+  ],
+  "candidate_shards": [
+    {
+      "bytes": 693380288,
+      "data_start": 10945728,
+      "path": "Z:\\Qwen38-FlashNext-Cluster\\artifacts\\models\\AtomicChat\\.staging\\ATOMICCHAT-4.27-Q3PLE-001\\Qwen3.8-Flash-Next-AD-4.27bpw-Q3_PLE-M64-00001-of-00033.gguf",
+      "tensor_count": 4
+    },
+    {
+      "bytes": 22400107712,
+      "data_start": 192,
+      "path": "Z:\\Qwen38-FlashNext-Cluster\\artifacts\\models\\AtomicChat\\.staging\\ATOMICCHAT-4.27-Q3PLE-001\\Qwen3.8-Flash-Next-AD-4.27bpw-Q3_PLE-M64-00002-of-00033.gguf",
+      "tensor_count": 1
+    },
+    {
+      "bytes": 1999024832,
+      "data_start": 1856,
+      "path": "Z:\\Qwen38-FlashNext-Cluster\\artifacts\\models\\AtomicChat\\.staging\\ATOMICCHAT-4.27-Q3PLE-001\\Qwen3.8-Flash-Next-AD-4.27bpw-Q3_PLE-M64-00003-of-00033.gguf",
+      "tensor_count": 28
+    },
+    {
+      "bytes": 1787651072,
+      "data_start": 2176,
+      "path": "Z:\\Qwen38-FlashNext-Cluster\\artifacts\\models\\AtomicChat\\.staging\\ATOMICCHAT-4.27-Q3PLE-001\\Qwen3.8-Flash-Next-AD-4.27bpw-Q3_PLE-M64-00004-of-00033.gguf",
+      "tensor_count": 33
+    },
+    {
+      "bytes": 1654830080,
+      "data_start": 2176,
+      "path": "Z:\\Qwen38-FlashNext-Cluster\\artifacts\\models\\AtomicChat\\.staging\\ATOMICCHAT-4.27-Q3PLE-001\\Qwen3.8-Flash-Next-AD-4.27bpw-Q3_PLE-M64-00005-of-00033.gguf",
+      "tensor_count": 33
+    },
+    {
+      "bytes": 1993256608,
+      "data_start": 2848,
+      "path": "Z:\\Qwen38-FlashNext-Cluster\\artifacts\\models\\AtomicChat\\.staging\\ATOMICCHAT-4.27-Q3PLE-001\\Qwen3.8-Flash-Next-AD-4.27bpw-Q3_PLE-M64-00006-of-00033.gguf",
+      "tensor_count": 43
+    },
+    {
+      "bytes": 1725815808,
+      "data_start": 3328,
+      "path": "Z:\\Qwen38-FlashNext-Cluster\\artifacts\\models\\AtomicChat\\.staging\\ATOMICCHAT-4.27-Q3PLE-001\\Qwen3.8-Flash-Next-AD-4.27bpw-Q3_PLE-M64-00007-of-00033.gguf",
+      "tensor_count": 52
+    },
+    {
+      "bytes": 1830961056,
+      "data_start": 1952,
+      "path": "Z:\\Qwen38-FlashNext-Cluster\\artifacts\\models\\AtomicChat\\.staging\\ATOMICCHAT-4.27-Q3PLE-001\\Qwen3.8-Flash-Next-AD-4.27bpw-Q3_PLE-M64-00008-of-00033.gguf",
+      "tensor_count": 28
+    },
+    {
+      "bytes": 1915366048,
+      "data_start": 2976,
+      "path": "Z:\\Qwen38-FlashNext-Cluster\\artifacts\\models\\AtomicChat\\.staging\\ATOMICCHAT-4.27-Q3PLE-001\\Qwen3.8-Flash-Next-AD-4.27bpw-Q3_PLE-M64-00009-of-00033.gguf",
+      "tensor_count": 46
+    },
+    {
+      "bytes": 1711956000,
+      "data_start": 3232,
+      "path": "Z:\\Qwen38-FlashNext-Cluster\\artifacts\\models\\AtomicChat\\.staging\\ATOMICCHAT-4.27-Q3PLE-001\\Qwen3.8-Flash-Next-AD-4.27bpw-Q3_PLE-M64-00010-of-00033.gguf",
+      "tensor_count": 49
+    },
+    {
+      "bytes": 1844820928,
+      "data_start": 2112,
+      "path": "Z:\\Qwen38-FlashNext-Cluster\\artifacts\\models\\AtomicChat\\.staging\\ATOMICCHAT-4.27-Q3PLE-001\\Qwen3.8-Flash-Next-AD-4.27bpw-Q3_PLE-M64-00011-of-00033.gguf",
+      "tensor_count": 31
+    },
+    {
+      "bytes": 1923724224,
+      "data_start": 3264,
+      "path": "Z:\\Qwen38-FlashNext-Cluster\\artifacts\\models\\AtomicChat\\.staging\\ATOMICCHAT-4.27-Q3PLE-001\\Qwen3.8-Flash-Next-AD-4.27bpw-Q3_PLE-M64-00012-of-00033.gguf",
+      "tensor_count": 50
+    },
+    {
+      "bytes": 1703597888,
+      "data_start": 3008,
+      "path": "Z:\\Qwen38-FlashNext-Cluster\\artifacts\\models\\AtomicChat\\.staging\\ATOMICCHAT-4.27-Q3PLE-001\\Qwen3.8-Flash-Next-AD-4.27bpw-Q3_PLE-M64-00013-of-00033.gguf",
+      "tensor_count": 45
+    },
+    {
+      "bytes": 1844820928,
+      "data_start": 2112,
+      "path": "Z:\\Qwen38-FlashNext-Cluster\\artifacts\\models\\AtomicChat\\.staging\\ATOMICCHAT-4.27-Q3PLE-001\\Qwen3.8-Flash-Next-AD-4.27bpw-Q3_PLE-M64-00014-of-00033.gguf",
+      "tensor_count": 31
+    },
+    {
+      "bytes": 1909864352,
+      "data_start": 3104,
+      "path": "Z:\\Qwen38-FlashNext-Cluster\\artifacts\\models\\AtomicChat\\.staging\\ATOMICCHAT-4.27-Q3PLE-001\\Qwen3.8-Flash-Next-AD-4.27bpw-Q3_PLE-M64-00015-of-00033.gguf",
+      "tensor_count": 47
+    },
+    {
+      "bytes": 1717457728,
+      "data_start": 3136,
+      "path": "Z:\\Qwen38-FlashNext-Cluster\\artifacts\\models\\AtomicChat\\.staging\\ATOMICCHAT-4.27-Q3PLE-001\\Qwen3.8-Flash-Next-AD-4.27bpw-Q3_PLE-M64-00016-of-00033.gguf",
+      "tensor_count": 48
+    },
+    {
+      "bytes": 1853179072,
+      "data_start": 2368,
+      "path": "Z:\\Qwen38-FlashNext-Cluster\\artifacts\\models\\AtomicChat\\.staging\\ATOMICCHAT-4.27-Q3PLE-001\\Qwen3.8-Flash-Next-AD-4.27bpw-Q3_PLE-M64-00017-of-00033.gguf",
+      "tensor_count": 35
+    },
+    {
+      "bytes": 1901506240,
+      "data_start": 2880,
+      "path": "Z:\\Qwen38-FlashNext-Cluster\\artifacts\\models\\AtomicChat\\.staging\\ATOMICCHAT-4.27-Q3PLE-001\\Qwen3.8-Flash-Next-AD-4.27bpw-Q3_PLE-M64-00018-of-00033.gguf",
+      "tensor_count": 43
+    },
+    {
+      "bytes": 1725815872,
+      "data_start": 3392,
+      "path": "Z:\\Qwen38-FlashNext-Cluster\\artifacts\\models\\AtomicChat\\.staging\\ATOMICCHAT-4.27-Q3PLE-001\\Qwen3.8-Flash-Next-AD-4.27bpw-Q3_PLE-M64-00019-of-00033.gguf",
+      "tensor_count": 52
+    },
+    {
+      "bytes": 1830961088,
+      "data_start": 1984,
+      "path": "Z:\\Qwen38-FlashNext-Cluster\\artifacts\\models\\AtomicChat\\.staging\\ATOMICCHAT-4.27-Q3PLE-001\\Qwen3.8-Flash-Next-AD-4.27bpw-Q3_PLE-M64-00020-of-00033.gguf",
+      "tensor_count": 28
+    },
+    {
+      "bytes": 1915366080,
+      "data_start": 3008,
+      "path": "Z:\\Qwen38-FlashNext-Cluster\\artifacts\\models\\AtomicChat\\.staging\\ATOMICCHAT-4.27-Q3PLE-001\\Qwen3.8-Flash-Next-AD-4.27bpw-Q3_PLE-M64-00021-of-00033.gguf",
+      "tensor_count": 46
+    },
+    {
+      "bytes": 1711956000,
+      "data_start": 3232,
+      "path": "Z:\\Qwen38-FlashNext-Cluster\\artifacts\\models\\AtomicChat\\.staging\\ATOMICCHAT-4.27-Q3PLE-001\\Qwen3.8-Flash-Next-AD-4.27bpw-Q3_PLE-M64-00022-of-00033.gguf",
+      "tensor_count": 49
+    },
+    {
+      "bytes": 1844820928,
+      "data_start": 2112,
+      "path": "Z:\\Qwen38-FlashNext-Cluster\\artifacts\\models\\AtomicChat\\.staging\\ATOMICCHAT-4.27-Q3PLE-001\\Qwen3.8-Flash-Next-AD-4.27bpw-Q3_PLE-M64-00023-of-00033.gguf",
+      "tensor_count": 31
+    },
+    {
+      "bytes": 1923724224,
+      "data_start": 3264,
+      "path": "Z:\\Qwen38-FlashNext-Cluster\\artifacts\\models\\AtomicChat\\.staging\\ATOMICCHAT-4.27-Q3PLE-001\\Qwen3.8-Flash-Next-AD-4.27bpw-Q3_PLE-M64-00024-of-00033.gguf",
+      "tensor_count": 50
+    },
+    {
+      "bytes": 1703597888,
+      "data_start": 3008,
+      "path": "Z:\\Qwen38-FlashNext-Cluster\\artifacts\\models\\AtomicChat\\.staging\\ATOMICCHAT-4.27-Q3PLE-001\\Qwen3.8-Flash-Next-AD-4.27bpw-Q3_PLE-M64-00025-of-00033.gguf",
+      "tensor_count": 45
+    },
+    {
+      "bytes": 1844820928,
+      "data_start": 2112,
+      "path": "Z:\\Qwen38-FlashNext-Cluster\\artifacts\\models\\AtomicChat\\.staging\\ATOMICCHAT-4.27-Q3PLE-001\\Qwen3.8-Flash-Next-AD-4.27bpw-Q3_PLE-M64-00026-of-00033.gguf",
+      "tensor_count": 31
+    },
+    {
+      "bytes": 1909864352,
+      "data_start": 3104,
+      "path": "Z:\\Qwen38-FlashNext-Cluster\\artifacts\\models\\AtomicChat\\.staging\\ATOMICCHAT-4.27-Q3PLE-001\\Qwen3.8-Flash-Next-AD-4.27bpw-Q3_PLE-M64-00027-of-00033.gguf",
+      "tensor_count": 47
+    },
+    {
+      "bytes": 1646472000,
+      "data_start": 1984,
+      "path": "Z:\\Qwen38-FlashNext-Cluster\\artifacts\\models\\AtomicChat\\.staging\\ATOMICCHAT-4.27-Q3PLE-001\\Qwen3.8-Flash-Next-AD-4.27bpw-Q3_PLE-M64-00028-of-00033.gguf",
+      "tensor_count": 29
+    },
+    {
+      "bytes": 1725375264,
+      "data_start": 3104,
+      "path": "Z:\\Qwen38-FlashNext-Cluster\\artifacts\\models\\AtomicChat\\.staging\\ATOMICCHAT-4.27-Q3PLE-001\\Qwen3.8-Flash-Next-AD-4.27bpw-Q3_PLE-M64-00029-of-00033.gguf",
+      "tensor_count": 48
+    },
+    {
+      "bytes": 1738770080,
+      "data_start": 1696,
+      "path": "Z:\\Qwen38-FlashNext-Cluster\\artifacts\\models\\AtomicChat\\.staging\\ATOMICCHAT-4.27-Q3PLE-001\\Qwen3.8-Flash-Next-AD-4.27bpw-Q3_PLE-M64-00030-of-00033.gguf",
+      "tensor_count": 24
+    },
+    {
+      "bytes": 1646472000,
+      "data_start": 1984,
+      "path": "Z:\\Qwen38-FlashNext-Cluster\\artifacts\\models\\AtomicChat\\.staging\\ATOMICCHAT-4.27-Q3PLE-001\\Qwen3.8-Flash-Next-AD-4.27bpw-Q3_PLE-M64-00031-of-00033.gguf",
+      "tensor_count": 29
+    },
+    {
+      "bytes": 1725375264,
+      "data_start": 3104,
+      "path": "Z:\\Qwen38-FlashNext-Cluster\\artifacts\\models\\AtomicChat\\.staging\\ATOMICCHAT-4.27-Q3PLE-001\\Qwen3.8-Flash-Next-AD-4.27bpw-Q3_PLE-M64-00032-of-00033.gguf",
+      "tensor_count": 48
+    },
+    {
+      "bytes": 1220605344,
+      "data_start": 1440,
+      "path": "Z:\\Qwen38-FlashNext-Cluster\\artifacts\\models\\AtomicChat\\.staging\\ATOMICCHAT-4.27-Q3PLE-001\\Qwen3.8-Flash-Next-AD-4.27bpw-Q3_PLE-M64-00033-of-00033.gguf",
+      "tensor_count": 20
+    }
+  ],
+  "candidate_tensor_count": 1224,
+  "candidate_total_bytes": 78525318176,
+  "candidate_type_tensor_counts": {
+    "BF16": 24,
+    "F16": 1,
+    "F32": 388,
+    "IQ2_S": 72,
+    "IQ3_S": 24,
+    "IQ4_NL": 48,
+    "Q3_PLE": 1,
+    "Q8_0": 666
+  },
+  "descriptor_differences": [
+    {
+      "allowed": true,
+      "differences": {
+        "type": [
+          "Q5_1",
+          "Q3_PLE"
+        ],
+        "type_code": [
+          7,
+          43
+        ]
+      },
+      "name": "per_layer_token_embd.weight"
+    }
+  ],
+  "evidence_class": "MEASURED",
+  "missing_allowed_tensors": [],
+  "name_mismatches": {
+    "extra_in_candidate": [],
+    "missing_from_candidate": []
+  },
+  "payload_mismatches": [],
+  "payload_verified_bytes": 56114183680,
+  "payload_verified_tensor_count": 1223,
+  "reference_shards": [
+    {
+      "bytes": 693380288,
+      "data_start": 10945728,
+      "path": "Z:\\Qwen38-FlashNext-Cluster\\artifacts\\models\\AtomicChat\\Qwen3.8-Flash-Next-AD-4.27bpw-Q4_K_M-M64\\Qwen3.8-Flash-Next-AD-4.27bpw-Q4_K_M-M64-00001-of-00033.gguf",
+      "tensor_count": 4
+    },
+    {
+      "bytes": 38400184512,
+      "data_start": 192,
+      "path": "Z:\\Qwen38-FlashNext-Cluster\\artifacts\\models\\AtomicChat\\Qwen3.8-Flash-Next-AD-4.27bpw-Q4_K_M-M64\\Qwen3.8-Flash-Next-AD-4.27bpw-Q4_K_M-M64-00002-of-00033.gguf",
+      "tensor_count": 1
+    },
+    {
+      "bytes": 1999024832,
+      "data_start": 1856,
+      "path": "Z:\\Qwen38-FlashNext-Cluster\\artifacts\\models\\AtomicChat\\Qwen3.8-Flash-Next-AD-4.27bpw-Q4_K_M-M64\\Qwen3.8-Flash-Next-AD-4.27bpw-Q4_K_M-M64-00003-of-00033.gguf",
+      "tensor_count": 28
+    },
+    {
+      "bytes": 1787651072,
+      "data_start": 2176,
+      "path": "Z:\\Qwen38-FlashNext-Cluster\\artifacts\\models\\AtomicChat\\Qwen3.8-Flash-Next-AD-4.27bpw-Q4_K_M-M64\\Qwen3.8-Flash-Next-AD-4.27bpw-Q4_K_M-M64-00004-of-00033.gguf",
+      "tensor_count": 33
+    },
+    {
+      "bytes": 1654830080,
+      "data_start": 2176,
+      "path": "Z:\\Qwen38-FlashNext-Cluster\\artifacts\\models\\AtomicChat\\Qwen3.8-Flash-Next-AD-4.27bpw-Q4_K_M-M64\\Qwen3.8-Flash-Next-AD-4.27bpw-Q4_K_M-M64-00005-of-00033.gguf",
+      "tensor_count": 33
+    },
+    {
+      "bytes": 1993256608,
+      "data_start": 2848,
+      "path": "Z:\\Qwen38-FlashNext-Cluster\\artifacts\\models\\AtomicChat\\Qwen3.8-Flash-Next-AD-4.27bpw-Q4_K_M-M64\\Qwen3.8-Flash-Next-AD-4.27bpw-Q4_K_M-M64-00006-of-00033.gguf",
+      "tensor_count": 43
+    },
+    {
+      "bytes": 1725815808,
+      "data_start": 3328,
+      "path": "Z:\\Qwen38-FlashNext-Cluster\\artifacts\\models\\AtomicChat\\Qwen3.8-Flash-Next-AD-4.27bpw-Q4_K_M-M64\\Qwen3.8-Flash-Next-AD-4.27bpw-Q4_K_M-M64-00007-of-00033.gguf",
+      "tensor_count": 52
+    },
+    {
+      "bytes": 1830961056,
+      "data_start": 1952,
+      "path": "Z:\\Qwen38-FlashNext-Cluster\\artifacts\\models\\AtomicChat\\Qwen3.8-Flash-Next-AD-4.27bpw-Q4_K_M-M64\\Qwen3.8-Flash-Next-AD-4.27bpw-Q4_K_M-M64-00008-of-00033.gguf",
+      "tensor_count": 28
+    },
+    {
+      "bytes": 1915366048,
+      "data_start": 2976,
+      "path": "Z:\\Qwen38-FlashNext-Cluster\\artifacts\\models\\AtomicChat\\Qwen3.8-Flash-Next-AD-4.27bpw-Q4_K_M-M64\\Qwen3.8-Flash-Next-AD-4.27bpw-Q4_K_M-M64-00009-of-00033.gguf",
+      "tensor_count": 46
+    },
+    {
+      "bytes": 1711956000,
+      "data_start": 3232,
+      "path": "Z:\\Qwen38-FlashNext-Cluster\\artifacts\\models\\AtomicChat\\Qwen3.8-Flash-Next-AD-4.27bpw-Q4_K_M-M64\\Qwen3.8-Flash-Next-AD-4.27bpw-Q4_K_M-M64-00010-of-00033.gguf",
+      "tensor_count": 49
+    },
+    {
+      "bytes": 1844820928,
+      "data_start": 2112,
+      "path": "Z:\\Qwen38-FlashNext-Cluster\\artifacts\\models\\AtomicChat\\Qwen3.8-Flash-Next-AD-4.27bpw-Q4_K_M-M64\\Qwen3.8-Flash-Next-AD-4.27bpw-Q4_K_M-M64-00011-of-00033.gguf",
+      "tensor_count": 31
+    },
+    {
+      "bytes": 1923724224,
+      "data_start": 3264,
+      "path": "Z:\\Qwen38-FlashNext-Cluster\\artifacts\\models\\AtomicChat\\Qwen3.8-Flash-Next-AD-4.27bpw-Q4_K_M-M64\\Qwen3.8-Flash-Next-AD-4.27bpw-Q4_K_M-M64-00012-of-00033.gguf",
+      "tensor_count": 50
+    },
+    {
+      "bytes": 1703597888,
+      "data_start": 3008,
+      "path": "Z:\\Qwen38-FlashNext-Cluster\\artifacts\\models\\AtomicChat\\Qwen3.8-Flash-Next-AD-4.27bpw-Q4_K_M-M64\\Qwen3.8-Flash-Next-AD-4.27bpw-Q4_K_M-M64-00013-of-00033.gguf",
+      "tensor_count": 45
+    },
+    {
+      "bytes": 1844820928,
+      "data_start": 2112,
+      "path": "Z:\\Qwen38-FlashNext-Cluster\\artifacts\\models\\AtomicChat\\Qwen3.8-Flash-Next-AD-4.27bpw-Q4_K_M-M64\\Qwen3.8-Flash-Next-AD-4.27bpw-Q4_K_M-M64-00014-of-00033.gguf",
+      "tensor_count": 31
+    },
+    {
+      "bytes": 1909864352,
+      "data_start": 3104,
+      "path": "Z:\\Qwen38-FlashNext-Cluster\\artifacts\\models\\AtomicChat\\Qwen3.8-Flash-Next-AD-4.27bpw-Q4_K_M-M64\\Qwen3.8-Flash-Next-AD-4.27bpw-Q4_K_M-M64-00015-of-00033.gguf",
+      "tensor_count": 47
+    },
+    {
+      "bytes": 1717457728,
+      "data_start": 3136,
+      "path": "Z:\\Qwen38-FlashNext-Cluster\\artifacts\\models\\AtomicChat\\Qwen3.8-Flash-Next-AD-4.27bpw-Q4_K_M-M64\\Qwen3.8-Flash-Next-AD-4.27bpw-Q4_K_M-M64-00016-of-00033.gguf",
+      "tensor_count": 48
+    },
+    {
+      "bytes": 1853179072,
+      "data_start": 2368,
+      "path": "Z:\\Qwen38-FlashNext-Cluster\\artifacts\\models\\AtomicChat\\Qwen3.8-Flash-Next-AD-4.27bpw-Q4_K_M-M64\\Qwen3.8-Flash-Next-AD-4.27bpw-Q4_K_M-M64-00017-of-00033.gguf",
+      "tensor_count": 35
+    },
+    {
+      "bytes": 1901506240,
+      "data_start": 2880,
+      "path": "Z:\\Qwen38-FlashNext-Cluster\\artifacts\\models\\AtomicChat\\Qwen3.8-Flash-Next-AD-4.27bpw-Q4_K_M-M64\\Qwen3.8-Flash-Next-AD-4.27bpw-Q4_K_M-M64-00018-of-00033.gguf",
+      "tensor_count": 43
+    },
+    {
+      "bytes": 1725815872,
+      "data_start": 3392,
+      "path": "Z:\\Qwen38-FlashNext-Cluster\\artifacts\\models\\AtomicChat\\Qwen3.8-Flash-Next-AD-4.27bpw-Q4_K_M-M64\\Qwen3.8-Flash-Next-AD-4.27bpw-Q4_K_M-M64-00019-of-00033.gguf",
+      "tensor_count": 52
+    },
+    {
+      "bytes": 1830961088,
+      "data_start": 1984,
+      "path": "Z:\\Qwen38-FlashNext-Cluster\\artifacts\\models\\AtomicChat\\Qwen3.8-Flash-Next-AD-4.27bpw-Q4_K_M-M64\\Qwen3.8-Flash-Next-AD-4.27bpw-Q4_K_M-M64-00020-of-00033.gguf",
+      "tensor_count": 28
+    },
+    {
+      "bytes": 1915366080,
+      "data_start": 3008,
+      "path": "Z:\\Qwen38-FlashNext-Cluster\\artifacts\\models\\AtomicChat\\Qwen3.8-Flash-Next-AD-4.27bpw-Q4_K_M-M64\\Qwen3.8-Flash-Next-AD-4.27bpw-Q4_K_M-M64-00021-of-00033.gguf",
+      "tensor_count": 46
+    },
+    {
+      "bytes": 1711956000,
+      "data_start": 3232,
+      "path": "Z:\\Qwen38-FlashNext-Cluster\\artifacts\\models\\AtomicChat\\Qwen3.8-Flash-Next-AD-4.27bpw-Q4_K_M-M64\\Qwen3.8-Flash-Next-AD-4.27bpw-Q4_K_M-M64-00022-of-00033.gguf",
+      "tensor_count": 49
+    },
+    {
+      "bytes": 1844820928,
+      "data_start": 2112,
+      "path": "Z:\\Qwen38-FlashNext-Cluster\\artifacts\\models\\AtomicChat\\Qwen3.8-Flash-Next-AD-4.27bpw-Q4_K_M-M64\\Qwen3.8-Flash-Next-AD-4.27bpw-Q4_K_M-M64-00023-of-00033.gguf",
+      "tensor_count": 31
+    },
+    {
+      "bytes": 1923724224,
+      "data_start": 3264,
+      "path": "Z:\\Qwen38-FlashNext-Cluster\\artifacts\\models\\AtomicChat\\Qwen3.8-Flash-Next-AD-4.27bpw-Q4_K_M-M64\\Qwen3.8-Flash-Next-AD-4.27bpw-Q4_K_M-M64-00024-of-00033.gguf",
+      "tensor_count": 50
+    },
+    {
+      "bytes": 1703597888,
+      "data_start": 3008,
+      "path": "Z:\\Qwen38-FlashNext-Cluster\\artifacts\\models\\AtomicChat\\Qwen3.8-Flash-Next-AD-4.27bpw-Q4_K_M-M64\\Qwen3.8-Flash-Next-AD-4.27bpw-Q4_K_M-M64-00025-of-00033.gguf",
+      "tensor_count": 45
+    },
+    {
+      "bytes": 1844820928,
+      "data_start": 2112,
+      "path": "Z:\\Qwen38-FlashNext-Cluster\\artifacts\\models\\AtomicChat\\Qwen3.8-Flash-Next-AD-4.27bpw-Q4_K_M-M64\\Qwen3.8-Flash-Next-AD-4.27bpw-Q4_K_M-M64-00026-of-00033.gguf",
+      "tensor_count": 31
+    },
+    {
+      "bytes": 1909864352,
+      "data_start": 3104,
+      "path": "Z:\\Qwen38-FlashNext-Cluster\\artifacts\\models\\AtomicChat\\Qwen3.8-Flash-Next-AD-4.27bpw-Q4_K_M-M64\\Qwen3.8-Flash-Next-AD-4.27bpw-Q4_K_M-M64-00027-of-00033.gguf",
+      "tensor_count": 47
+    },
+    {
+      "bytes": 1646472000,
+      "data_start": 1984,
+      "path": "Z:\\Qwen38-FlashNext-Cluster\\artifacts\\models\\AtomicChat\\Qwen3.8-Flash-Next-AD-4.27bpw-Q4_K_M-M64\\Qwen3.8-Flash-Next-AD-4.27bpw-Q4_K_M-M64-00028-of-00033.gguf",
+      "tensor_count": 29
+    },
+    {
+      "bytes": 1725375264,
+      "data_start": 3104,
+      "path": "Z:\\Qwen38-FlashNext-Cluster\\artifacts\\models\\AtomicChat\\Qwen3.8-Flash-Next-AD-4.27bpw-Q4_K_M-M64\\Qwen3.8-Flash-Next-AD-4.27bpw-Q4_K_M-M64-00029-of-00033.gguf",
+      "tensor_count": 48
+    },
+    {
+      "bytes": 1738770080,
+      "data_start": 1696,
+      "path": "Z:\\Qwen38-FlashNext-Cluster\\artifacts\\models\\AtomicChat\\Qwen3.8-Flash-Next-AD-4.27bpw-Q4_K_M-M64\\Qwen3.8-Flash-Next-AD-4.27bpw-Q4_K_M-M64-00030-of-00033.gguf",
+      "tensor_count": 24
+    },
+    {
+      "bytes": 1646472000,
+      "data_start": 1984,
+      "path": "Z:\\Qwen38-FlashNext-Cluster\\artifacts\\models\\AtomicChat\\Qwen3.8-Flash-Next-AD-4.27bpw-Q4_K_M-M64\\Qwen3.8-Flash-Next-AD-4.27bpw-Q4_K_M-M64-00031-of-00033.gguf",
+      "tensor_count": 29
+    },
+    {
+      "bytes": 1725375264,
+      "data_start": 3104,
+      "path": "Z:\\Qwen38-FlashNext-Cluster\\artifacts\\models\\AtomicChat\\Qwen3.8-Flash-Next-AD-4.27bpw-Q4_K_M-M64\\Qwen3.8-Flash-Next-AD-4.27bpw-Q4_K_M-M64-00032-of-00033.gguf",
+      "tensor_count": 48
+    },
+    {
+      "bytes": 1220605344,
+      "data_start": 1440,
+      "path": "Z:\\Qwen38-FlashNext-Cluster\\artifacts\\models\\AtomicChat\\Qwen3.8-Flash-Next-AD-4.27bpw-Q4_K_M-M64\\Qwen3.8-Flash-Next-AD-4.27bpw-Q4_K_M-M64-00033-of-00033.gguf",
+      "tensor_count": 20
+    }
+  ],
+  "reference_tensor_count": 1224,
+  "reference_total_bytes": 94525394976,
+  "reference_type_tensor_counts": {
+    "BF16": 24,
+    "F16": 1,
+    "F32": 388,
+    "IQ2_S": 72,
+    "IQ3_S": 24,
+    "IQ4_NL": 48,
+    "Q5_1": 1,
+    "Q8_0": 666
+  },
+  "schema_version": 1,
+  "unexpected_descriptor_differences": [],
+  "verdict": "PASS"
+}
