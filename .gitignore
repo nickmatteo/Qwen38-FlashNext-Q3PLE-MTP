@@ -20,6 +20,10 @@
 /artifacts/test-step*/
 /workstreams/
 
+# Internal handoff notes and generated transfer packets remain local.
+[Hh]andoff/
+[Hh]andoffs/
+
 # Generated logs remain local unless deliberately force-added. Structured
 # result records are tracked; large result payloads must be explicitly ignored.
 logs/*/
