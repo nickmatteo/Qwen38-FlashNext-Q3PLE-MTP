@@ -1,0 +1,162 @@
+{
+  "schema": 1,
+  "profile_id": "q3ple_daily_80k_reasoning_v1",
+  "status": "EXPERIMENTAL",
+  "description": "Target-only reasoning profile for Pi and DeepSeek Harness agent benchmarks.",
+  "policy": {
+    "default_mode": "target",
+    "allowed_modes": ["target"],
+    "purpose": "real-world coding-agent baseline",
+    "mtp_task_comparison": "disabled until target-only agent gates pass"
+  },
+  "reasoning": {
+    "enabled": true,
+    "effort": "medium",
+    "budget_tokens": 8192,
+    "format": "deepseek",
+    "preserve": false,
+    "preserve_gate": "Enable only after the pinned Qwen template passes exact append-only prefix and tool-turn tests.",
+    "sampling": {
+      "temperature": 1.0,
+      "top_p": 0.95,
+      "top_k": 20,
+      "min_p": 0.0,
+      "presence_penalty": 0.0,
+      "repetition_penalty": 1.0
+    },
+    "sampling_source": "Qwen/Qwen3.8-Flash-Next@f5d08274bafd880402bd16f5e3e6c514136ec06c README thinking-mode recommendation"
+  },
+  "runtime": {
+    "candidate": true,
+    "commit": "73b803464f25fc9054046728bf2ebed5a372737e",
+    "worktree": "workstreams/llama.cpp-mtp-slot-state",
+    "executable": "workstreams/llama.cpp-mtp-slot-state/build-win-cuda-mtp-slot/bin/llama-server.exe",
+    "bundle": {
+      "ggml.dll": "A6E1A30EF7DA4B9D65D0496E0BD796D1871A4C1BD04F78DC41EDEE6B82716741",
+      "ggml-base.dll": "345CC0849FA85522B476D1ACAE99C9DF2FB255CD3129D644D4937835E23B7F85",
+      "ggml-cpu.dll": "66756DB9E03189B26F85442177D07EB33D0ECEFA267668D7811B05060C9B0B85",
+      "ggml-cuda.dll": "444C23292C53E891B1D5C3A74B21233A015256CC92B91D35E6C6F757DDCBE0C2",
+      "llama.dll": "8779092AC497E995DDEBE0327DA53EB4774EF4513E13E7E20EA9CDFFAC10613D",
+      "llama-common.dll": "E192780F16EF88F341FA3E12300F7F0E118F40D3E3F6F23AE659BACA7F6E65BE",
+      "llama-server.exe": "49B51341F0E29B7AA6F73C1723F105E407AFB06EAB3BCFDCE6490F4985DB949E",
+      "llama-server-impl.dll": "F071A8864507E83AF9E67B1E6EC3D13D786B5BBBEA243DC34CA175C7303BE566",
+      "mtmd.dll": "11B609FEE9DC975911662E170439FC66B7553C48B43B2A04F988A2636D61A597"
+    }
+  },
+  "artifacts": {
+    "target": {
+      "directory": "artifacts/models/AtomicChat/Qwen3.8-Flash-Next-AD-4.27bpw-Q3_PLE-M64",
+      "first_shard": "artifacts/models/AtomicChat/Qwen3.8-Flash-Next-AD-4.27bpw-Q3_PLE-M64/Qwen3.8-Flash-Next-AD-4.27bpw-Q3_PLE-M64-00001-of-00033.gguf",
+      "first_shard_sha256": "D160140839732E03F0FDAD1BF27B7512FFBEE4DC411BCE0F986367A005D9A726",
+      "shard_count": 33,
+      "aggregate_bytes": 78525318176
+    },
+    "sidecar": {
+      "path": "artifacts/models/Qwen3.8-Flash-Next-MTP-Q4_K_M-FC-HC/mtp-Qwen3.8-Flash-Next-DOWNQ4-FC-HC-OUTQ4.gguf",
+      "sha256": "7E9F2B282DC62534313B30738E0AD114C14E1A58B9C1E7BB9715DCF9C4CA676E",
+      "bytes": 2202883264,
+      "enabled": false,
+      "note": "Pinned for later matched MTP work; not loaded by this target-only profile."
+    }
+  },
+  "server": {
+    "host": "127.0.0.1",
+    "port": 18090,
+    "ports": {
+      "api": 18090,
+      "health": 18090
+    },
+    "health_path": "/health",
+    "completion_path": "/completion",
+    "slot_count": 1,
+    "slot_id": 0,
+    "slot_save_path": "results/QWEN38-MTP-PROTOTYPE-001/state/q3ple_daily_reasoning_v1/slots",
+    "base_args": [
+      "--model", "{target_first_shard}",
+      "--host", "127.0.0.1",
+      "--port", "18090",
+      "--ctx-size", "81920",
+      "--parallel", "1",
+      "--threads", "11",
+      "--threads-batch", "11",
+      "--batch-size", "2048",
+      "--ubatch-size", "256",
+      "--cache-type-k", "q4_0",
+      "--cache-type-v", "q4_0",
+      "--flash-attn", "on",
+      "--load-mode", "mmap",
+      "--tensor-read-lazy", "auto",
+      "--n-gpu-layers", "auto",
+      "--fit", "on",
+      "--fit-target", "1024",
+      "--n-cpu-moe", "48",
+      "--split-mode", "none",
+      "--device", "CUDA0",
+      "--cache-ram", "0",
+      "--no-warmup",
+      "--jinja",
+      "--reasoning", "on",
+      "--reasoning-effort", "medium",
+      "--reasoning-budget", "8192",
+      "--reasoning-format", "deepseek",
+      "--no-reasoning-preserve",
+      "--override-tensor", "per_layer_token_embd\\.weight=CPU",
+      "--log-verbosity", "3",
+      "--slot-save-path", "{slot_save_path}"
+    ],
+    "modes": {
+      "mtp": {
+        "enabled": false,
+        "sidecar": "{sidecar}",
+        "spec_type": "draft-mtp",
+        "spec_draft_n_max": 3,
+        "spec_draft_p_min": 0.75,
+        "spec_draft_device": "CUDA0",
+        "spec_draft_ngl": 0,
+        "spec_draft_threads": 8,
+        "spec_draft_threads_batch": 8,
+        "spec_draft_type_k": "q4_0",
+        "spec_draft_type_v": "q4_0",
+        "spec_draft_override_tensor": "^output\\.weight$=CUDA0,^blk\\.48\\.attn_.*=CUDA0,^blk\\.48\\.hc_attn_.*=CUDA0,^blk\\.48\\.hc_ffn_.*=CUDA0,^blk\\.48\\.nextn\\..*=CUDA0,^blk\\.48\\.ffn_gate_inp.*=CUDA0,^blk\\.48\\.ffn_(gate|up|down)_shexp.*=CUDA0,^blk\\.48\\.ffn_(gate|up|down)_exps.*=CUDA_Host"
+      },
+      "target": {
+        "enabled": true,
+        "spec_type": "none",
+        "fallback_note": "Required baseline mode; no implicit MTP selection or retry."
+      }
+    }
+  },
+  "environment": {
+    "QWEN38_MTP_UBATCH": "64",
+    "QWEN38_MTP_DRAFT_EXPERT_OFFLOAD": "1",
+    "GGML_CUDA_MOE_CACHE_MB": "0",
+    "QWEN38_WORKING_SET_CAP_GIB": "37"
+  },
+  "safety": {
+    "hard_ram_available_bytes": 6442450944,
+    "hard_gpu_free_mib": 768,
+    "daily_gpu_free_mib": 1024,
+    "max_owned_rss_bytes": 53687091200,
+    "max_swap_growth_bytes": 1073741824,
+    "working_set_cap_bytes": 39728447488,
+    "health_timeout_seconds": 300,
+    "request_timeout_seconds": 7200
+  },
+  "client_contract": {
+    "id_slot": 0,
+    "cache_prompt": true,
+    "parallel": 1,
+    "required_extra_body": {
+      "id_slot": 0,
+      "cache_prompt": true,
+      "parallel": 1
+    }
+  },
+  "state": {
+    "directory": "results/QWEN38-MTP-PROTOTYPE-001/state/q3ple_daily_reasoning_v1",
+    "latest_pointer": "latest.json",
+    "manifest_suffix": ".manifest.json",
+    "slot_suffix": ".slot.bin",
+    "draft_suffix": ".dft"
+  }
+}

@@ -1,0 +1,284 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "q3ple-real-agent-result-v1",
+  "title": "Q3_PLE real-world agent benchmark result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "run_id",
+    "task_id",
+    "status",
+    "evidence_class",
+    "harness",
+    "model",
+    "runtime",
+    "profile",
+    "outcome",
+    "agent",
+    "cache",
+    "resources",
+    "artifacts"
+  ],
+  "properties": {
+    "schema": {
+      "const": "q3ple-real-agent-result-v1"
+    },
+    "run_id": {
+      "type": "string",
+      "minLength": 8
+    },
+    "task_id": {
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "VALID",
+        "FAILED",
+        "VOID",
+        "BLOCKED"
+      ]
+    },
+    "evidence_class": {
+      "enum": [
+        "MEASURED",
+        "MEASURED_DIAGNOSTIC",
+        "PROXY",
+        "EXTERNAL"
+      ]
+    },
+    "harness": {
+      "type": "object",
+      "required": [
+        "name",
+        "version",
+        "adapter_sha256"
+      ],
+      "properties": {
+        "name": {
+          "enum": [
+            "pi",
+            "deepseek-harness"
+          ]
+        },
+        "version": {
+          "type": "string"
+        },
+        "adapter_sha256": {
+          "type": "string",
+          "pattern": "^[A-F0-9]{64}$"
+        }
+      }
+    },
+    "model": {
+      "type": "object",
+      "required": [
+        "target_manifest_sha256",
+        "target_bytes",
+        "mode"
+      ],
+      "properties": {
+        "target_manifest_sha256": {
+          "type": "string",
+          "pattern": "^[A-F0-9]{64}$"
+        },
+        "target_bytes": {
+          "const": 78525318176
+        },
+        "mode": {
+          "const": "target"
+        }
+      }
+    },
+    "runtime": {
+      "type": "object",
+      "required": [
+        "commit",
+        "executable_sha256"
+      ],
+      "properties": {
+        "commit": {
+          "const": "73b803464f25fc9054046728bf2ebed5a372737e"
+        },
+        "executable_sha256": {
+          "type": "string",
+          "pattern": "^[A-F0-9]{64}$"
+        }
+      }
+    },
+    "profile": {
+      "type": "object",
+      "required": [
+        "id",
+        "sha256",
+        "reasoning_effort",
+        "reasoning_budget"
+      ],
+      "properties": {
+        "id": {
+          "const": "q3ple_daily_80k_reasoning_v1"
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[A-F0-9]{64}$"
+        },
+        "reasoning_effort": {
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ]
+        },
+        "reasoning_budget": {
+          "const": 8192
+        }
+      }
+    },
+    "outcome": {
+      "type": "object",
+      "required": [
+        "task_pass",
+        "verifier_exit",
+        "human_interventions",
+        "unrelated_changes"
+      ],
+      "properties": {
+        "task_pass": {
+          "type": "boolean"
+        },
+        "verifier_exit": {
+          "type": "integer"
+        },
+        "human_interventions": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "unrelated_changes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "agent": {
+      "type": "object",
+      "required": [
+        "turns",
+        "tool_calls",
+        "malformed_tool_calls",
+        "wall_ms",
+        "time_to_first_edit_ms",
+        "longest_autonomous_ms"
+      ],
+      "properties": {
+        "turns": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "tool_calls": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "malformed_tool_calls": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "wall_ms": {
+          "type": "number",
+          "minimum": 0
+        },
+        "time_to_first_edit_ms": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "longest_autonomous_ms": {
+          "type": "number",
+          "minimum": 0
+        }
+      }
+    },
+    "cache": {
+      "type": "object",
+      "required": [
+        "all_turns_exact",
+        "turn_rows_sha256",
+        "restart_restore_pass"
+      ],
+      "properties": {
+        "all_turns_exact": {
+          "type": "boolean"
+        },
+        "turn_rows_sha256": {
+          "type": "string",
+          "pattern": "^[A-F0-9]{64}$"
+        },
+        "restart_restore_pass": {
+          "type": "boolean"
+        }
+      }
+    },
+    "resources": {
+      "type": "object",
+      "required": [
+        "min_ram_available_bytes",
+        "min_vram_free_mib",
+        "max_owned_rss_bytes",
+        "pagefile_growth_bytes",
+        "watchdog_violations"
+      ],
+      "properties": {
+        "min_ram_available_bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "min_vram_free_mib": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "max_owned_rss_bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "pagefile_growth_bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "watchdog_violations": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "artifacts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "task_manifest",
+        "turns_jsonl",
+        "verifier_log",
+        "diff",
+        "telemetry"
+      ],
+      "properties": {
+        "task_manifest": {"$ref": "#/$defs/relativePath"},
+        "turns_jsonl": {"$ref": "#/$defs/relativePath"},
+        "verifier_log": {"$ref": "#/$defs/relativePath"},
+        "diff": {"$ref": "#/$defs/relativePath"},
+        "telemetry": {"$ref": "#/$defs/relativePath"}
+      }
+    }
+  },
+  "$defs": {
+    "relativePath": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?![A-Za-z]:)(?![\\\\/])(?!.*\\.\\.).+"
+    }
+  }
+}

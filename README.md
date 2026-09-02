@@ -72,6 +72,7 @@ That negative result is public on purpose. Learned MTP is working, but this quan
 | See the exact hardware, profiles, and safety floors | [RTX 5070 / 64 GB report](docs/community/Q3PLE-MTP-RTX5070-64GB.md) |
 | Audit the real 59,750-token state | [Canonical 60K evidence report](docs/community/Q3PLE-CANONICAL-60K-2026-08-31.md) |
 | Reproduce benchmarks | [Benchmark suite](benchmarks/README.md) |
+| See the real Pi cache and restart benchmark | [20-turn coding-agent report](docs/community/Q3PLE-PI-AGENT-BENCHMARK-2026-09-02.md) |
 | Reconstruct the custom llama.cpp runtime | [Exact 36-patch series](patches/llama.cpp/cafe-035e227-to-73b803/README.md) |
 | Inspect provenance and licensing | [Third-party notices](THIRD_PARTY_NOTICES.md) |
 | Download and verify the GGUF release after publication | [Hugging Face model repository](https://huggingface.co/nmatteo3294/Qwen3.8-Flash-Next-Q3_PLE-MTP-GGUF) |

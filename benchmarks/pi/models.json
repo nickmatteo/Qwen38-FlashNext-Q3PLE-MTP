@@ -1,0 +1,48 @@
+{
+  "providers": {
+    "q3ple-local": {
+      "baseUrl": "http://127.0.0.1:18091/v1",
+      "api": "openai-completions",
+      "apiKey": "local-q3ple",
+      "compat": {
+        "supportsDeveloperRole": false,
+        "supportsReasoningEffort": true,
+        "supportsUsageInStreaming": false,
+        "supportsStrictMode": false,
+        "maxTokensField": "max_tokens",
+        "thinkingFormat": "qwen-chat-template",
+        "chatTemplateKwargs": {
+          "enable_thinking": {
+            "$var": "thinking.enabled"
+          },
+          "preserve_thinking": false
+        }
+      },
+      "models": [
+        {
+          "id": "q3ple-daily-reasoning",
+          "name": "Qwen3.8 Flash-Next Q3_PLE local reasoning",
+          "reasoning": true,
+          "thinkingLevelMap": {
+            "off": null,
+            "minimal": null,
+            "low": "low",
+            "medium": "medium",
+            "high": "high",
+            "xhigh": null,
+            "max": null
+          },
+          "input": ["text"],
+          "contextWindow": 81920,
+          "maxTokens": 16384,
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          }
+        }
+      ]
+    }
+  }
+}

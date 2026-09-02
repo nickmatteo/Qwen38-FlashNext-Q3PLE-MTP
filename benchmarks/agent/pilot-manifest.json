@@ -1,0 +1,29 @@
+{
+  "schema": "q3ple-real-agent-pilot-v1",
+  "status": "DEFINITION_IN_PROGRESS",
+  "harness_order": [
+    "pi",
+    "deepseek-harness"
+  ],
+  "initial_mode": "target",
+  "profile": "profiles/q3ple_daily_80k_reasoning.json",
+  "adapter": "scripts/q3ple_pi_adapter.py",
+  "task_schema": "benchmarks/agent/task.schema.json",
+  "result_schema": "benchmarks/agent/result.schema.json",
+  "required_pilot_categories": [
+    "codepath-explanation",
+    "seeded-bug",
+    "failing-tests",
+    "bounded-feature",
+    "misleading-hypothesis"
+  ],
+  "promotion_gates": {
+    "profile_valid": true,
+    "adapter_static_tests": true,
+    "live_20_turn_cache_proof": false,
+    "restart_restore_tool_continuation": false,
+    "snapshot_catalog_recovery": false,
+    "pilot_task_count": 0
+  },
+  "tasks": []
+}

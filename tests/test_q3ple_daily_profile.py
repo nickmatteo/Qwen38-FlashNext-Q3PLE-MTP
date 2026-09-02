@@ -6,6 +6,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 
@@ -99,6 +100,12 @@ class FakeBackend:
 
 
 class DailyProfileTests(unittest.TestCase):
+    def test_gpu_watchdog_query_is_headless_on_windows(self):
+        with mock.patch.object(daily.subprocess, "check_output", return_value="100, 2000, 3") as check:
+            self.assertEqual(daily._gpu_snapshot(), {"used_mib": 100, "free_mib": 2000, "util_pct": 3})
+        expected = int(getattr(daily.subprocess, "CREATE_NO_WINDOW", 0)) if daily.os.name == "nt" else 0
+        self.assertEqual(check.call_args.kwargs["creationflags"], expected)
+
     def test_profile_and_dry_run_are_pinned(self):
         profile = daily.load_profile()
         self.assertEqual(daily.validate_profile(profile), [])

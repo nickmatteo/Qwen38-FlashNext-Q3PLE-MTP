@@ -36,7 +36,8 @@ import psutil
 
 
 ROOT = Path(__file__).resolve().parents[1]
-PROFILE_PATH = ROOT / "profiles/q3ple_daily_80k.json"
+DEFAULT_PROFILE_PATH = ROOT / "profiles/q3ple_daily_80k.json"
+PROFILE_PATH = DEFAULT_PROFILE_PATH
 STATE_DIR = ROOT / "results/QWEN38-MTP-PROTOTYPE-001/state/q3ple_daily"
 STATE_PATH = STATE_DIR / "server.json"
 SLOTS_DIR = STATE_DIR / "slots"
@@ -84,11 +85,12 @@ def utc_now() -> str:
     return _dt.datetime.now(_dt.timezone.utc).isoformat().replace("+00:00", "Z")
 
 
-def load_profile() -> dict[str, Any]:
-    with PROFILE_PATH.open("r", encoding="utf-8") as handle:
+def load_profile(path: str | Path | None = None) -> dict[str, Any]:
+    selected = PROFILE_PATH if path is None else resolve_path(path)
+    with selected.open("r", encoding="utf-8") as handle:
         profile = json.load(handle)
     if not isinstance(profile, dict) or profile.get("schema") != 1:
-        raise ProfileError(f"unsupported profile schema in {PROFILE_PATH}")
+        raise ProfileError(f"unsupported profile schema in {selected}")
     return profile
 
 
@@ -113,6 +115,20 @@ def _config(profile: dict[str, Any]) -> dict[str, Path | int | str]:
         "host": str(server["host"]),
         "port": int(server["port"]),
     }
+
+
+def configure_profile(path: str | Path | None = None) -> dict[str, Any]:
+    """Select one profile and derive its isolated state paths before use."""
+
+    global PROFILE_PATH, STATE_DIR, STATE_PATH, SLOTS_DIR, LOGS_DIR
+    PROFILE_PATH = DEFAULT_PROFILE_PATH if path is None else resolve_path(path)
+    profile = load_profile(PROFILE_PATH)
+    config = _config(profile)
+    STATE_DIR = Path(config["state_dir"])
+    STATE_PATH = STATE_DIR / "server.json"
+    SLOTS_DIR = Path(config["slots_dir"])
+    LOGS_DIR = STATE_DIR / "logs"
+    return profile
 
 
 def sha256_file(path: str | Path) -> str:
@@ -158,6 +174,7 @@ def _git(*args: str, cwd: Path) -> str:
             text=True,
             encoding="utf-8",
             stderr=subprocess.STDOUT,
+            creationflags=int(getattr(subprocess, "CREATE_NO_WINDOW", 0)) if os.name == "nt" else 0,
         ).strip()
     except (OSError, subprocess.CalledProcessError) as error:
         raise ProfileError(f"git check failed in {cwd}: {error}") from error
@@ -362,6 +379,9 @@ def build_command(mode: str, profile: dict[str, Any] | None = None) -> list[str]
     if mode not in ("mtp", "target"):
         raise ValueError("mode must be mtp or target")
     profile = profile or load_profile()
+    allowed_modes = profile.get("policy", {}).get("allowed_modes", ["mtp", "target"])
+    if mode not in allowed_modes:
+        raise ProfileError(f"mode {mode!r} is disabled by profile {profile.get('profile_id')!r}")
     config = _config(profile)
     server = profile["server"]
     command = [str(config["executable"])]
@@ -415,6 +435,7 @@ def _gpu_snapshot() -> dict[str, int]:
             text=True,
             encoding="utf-8",
             stderr=subprocess.STDOUT,
+            creationflags=int(getattr(subprocess, "CREATE_NO_WINDOW", 0)) if os.name == "nt" else 0,
         ).strip()
     except (OSError, subprocess.CalledProcessError) as error:
         raise ProfileError(f"nvidia-smi preflight failed: {error}") from error
@@ -675,7 +696,8 @@ def _append_telemetry(path: Path, record: dict[str, Any]) -> None:
         handle.flush()
 
 
-def _spawn_watchdog(state: dict[str, Any], state_path: Path = STATE_PATH) -> dict[str, Any]:
+def _spawn_watchdog(state: dict[str, Any], state_path: Path | None = None) -> dict[str, Any]:
+    state_path = STATE_PATH if state_path is None else state_path
     telemetry = LOGS_DIR / f"watchdog-{state['pid']}-{int(float(state['create_time']))}.jsonl"
     command = [sys.executable, str(Path(__file__).resolve()), "watchdog", "--state-path", str(state_path.resolve()), "--pid", str(state["pid"])]
     # Publish the telemetry path before spawning so the child cannot race ahead
@@ -810,6 +832,9 @@ def launch(mode: str) -> dict[str, Any]:
     config = _config(profile)
     if mode not in ("mtp", "target"):
         raise ProfileError("launch mode must be mtp or target")
+    allowed_modes = profile.get("policy", {}).get("allowed_modes", ["mtp", "target"])
+    if mode not in allowed_modes:
+        raise ProfileError(f"launch mode {mode!r} is disabled by profile {profile.get('profile_id')!r}")
     prior = _read_state()
     if prior and prior.get("status") == "running" and identity_matches(prior):
         raise ProfileError("an owned q3ple_daily server is already running")
@@ -869,13 +894,26 @@ def launch(mode: str) -> dict[str, Any]:
         state["health_utc"] = utc_now()
         atomic_json(STATE_PATH, state)
         try:
-            state["watchdog"] = _spawn_watchdog(state)
+            watchdog = _spawn_watchdog(state)
+            latest = _read_state()
+            if latest and latest.get("status") == "failed_closed":
+                raise ProfileError("watchdog failed closed during launch startup")
+            if not identity_matches(state):
+                raise ProfileError("server exited while watchdog was starting")
+            state["watchdog"] = watchdog
         except Exception as error:
             # A server without supervision is not a valid daily launch.
             if identity_matches(state):
                 _stop_process_exact(state)
             raise ProfileError(f"watchdog launch failed; server terminated: {error}") from error
         atomic_json(STATE_PATH, state)
+        if not identity_matches(state) or not identity_matches(state["watchdog"]):
+            latest = _read_state() or state
+            latest["status"] = "failed_closed"
+            latest["error"] = "server or watchdog exited during launch finalization"
+            latest["failed_utc"] = utc_now()
+            atomic_json(STATE_PATH, latest)
+            raise ProfileError(latest["error"])
         return state
     except Exception as error:
         try:
@@ -883,8 +921,10 @@ def launch(mode: str) -> dict[str, Any]:
                 _stop_process_exact(state)
         except Exception:
             pass
-        failed = locals().get("state", {"schema": 1, "status": "failed", "mode": mode, "pid": process.pid})
-        failed.update({"status": "failed", "error": str(error), "failed_utc": utc_now()})
+        current = _read_state()
+        failed = current or locals().get("state", {"schema": 1, "status": "failed", "mode": mode, "pid": process.pid})
+        failure_status = "failed_closed" if failed.get("status") == "failed_closed" else "failed"
+        failed.update({"status": failure_status, "error": str(error), "failed_utc": utc_now()})
         atomic_json(STATE_PATH, failed)
         raise
     finally:
@@ -1315,12 +1355,16 @@ def smoke_plan(mode: str = "mtp") -> dict[str, Any]:
     if mode not in ("mtp", "target"):
         raise ValueError("mode must be mtp or target")
     profile = load_profile()
+    allowed_modes = profile.get("policy", {}).get("allowed_modes", ["mtp", "target"])
+    if mode not in allowed_modes:
+        raise ProfileError(f"smoke mode {mode!r} is disabled by profile {profile.get('profile_id')!r}")
     config = _config(profile)
     return {
         "bounded": True,
         "live": False,
         "mode": mode,
         "port": config["port"],
+        "state_dir": str(config["state_dir"]),
         "max_requests": 2,
         "request": {
             "path": "/completion",
@@ -1342,6 +1386,11 @@ def smoke_plan(mode: str = "mtp") -> dict[str, Any]:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--profile",
+        default=str(DEFAULT_PROFILE_PATH.relative_to(ROOT)),
+        help="profile JSON path relative to the repository root",
+    )
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("show", help="print the pinned profile JSON")
     validate = sub.add_parser("validate", help="validate profile pins and local artifact hashes")
@@ -1368,6 +1417,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     try:
+        configure_profile(args.profile)
         if args.command == "show":
             print(PROFILE_PATH.read_text(encoding="utf-8"), end="")
         elif args.command == "validate":

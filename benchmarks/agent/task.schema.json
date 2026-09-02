@@ -1,0 +1,185 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "q3ple-real-agent-task-v1",
+  "title": "Q3_PLE real-world agent task",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "task_id",
+    "title",
+    "category",
+    "prompt",
+    "fixture",
+    "permissions",
+    "limits",
+    "verifier"
+  ],
+  "properties": {
+    "schema": {
+      "const": "q3ple-real-agent-task-v1"
+    },
+    "task_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._-]+$"
+    },
+    "title": {
+      "type": "string",
+      "minLength": 8
+    },
+    "category": {
+      "enum": [
+        "codepath-explanation",
+        "seeded-bug",
+        "failing-tests",
+        "bounded-feature",
+        "behavior-preserving-refactor",
+        "misleading-hypothesis",
+        "long-horizon"
+      ]
+    },
+    "prompt": {
+      "type": "string",
+      "minLength": 20
+    },
+    "fixture": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source",
+        "revision",
+        "setup_sha256",
+        "disposable_worktree"
+      ],
+      "properties": {
+        "source": {
+          "type": "string",
+          "pattern": "^benchmarks/agent/fixtures/(?!.*\\.\\.).+"
+        },
+        "revision": {
+          "type": "string",
+          "minLength": 7
+        },
+        "setup_sha256": {
+          "type": "string",
+          "pattern": "^[A-F0-9]{64}$"
+        },
+        "disposable_worktree": {
+          "const": true
+        },
+        "setup_command": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "permissions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "allowed_paths",
+        "allowed_commands",
+        "network",
+        "push",
+        "merge",
+        "external_side_effects"
+      ],
+      "properties": {
+        "allowed_paths": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "pattern": "^(?![A-Za-z]:)(?![\\\\/])(?!.*\\.\\.).+"
+          }
+        },
+        "allowed_commands": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "network": {
+          "const": false
+        },
+        "push": {
+          "const": false
+        },
+        "merge": {
+          "const": false
+        },
+        "external_side_effects": {
+          "const": false
+        }
+      }
+    },
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "wall_seconds",
+        "max_turns",
+        "max_human_interventions"
+      ],
+      "properties": {
+        "wall_seconds": {
+          "type": "integer",
+          "minimum": 60,
+          "maximum": 14400
+        },
+        "max_turns": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 500
+        },
+        "max_human_interventions": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "restart_after_turn": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        }
+      }
+    },
+    "verifier": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "command",
+        "expected_exit",
+        "result_parser"
+      ],
+      "properties": {
+        "command": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "expected_exit": {
+          "type": "integer"
+        },
+        "result_parser": {
+          "enum": [
+            "exit-code",
+            "pytest-json",
+            "unittest-json",
+            "structured-json"
+          ]
+        }
+      }
+    }
+  }
+}
