@@ -27,6 +27,9 @@ ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_PROFILE = ROOT / "profiles/q3ple_daily_80k_reasoning.json"
 DEFAULT_PI_MODELS = ROOT / "benchmarks/pi/models.json"
 DEFAULT_LISTEN_PORT = 18091
+BASELINE_PROFILE_ID = "q3ple_daily_80k_reasoning_v1"
+BASELINE_UPSTREAM_PORT = 18090
+BASELINE_STATE_MARKER = "q3ple_daily_reasoning_v1"
 MODEL_ID = "q3ple-daily-reasoning"
 MAX_CANONICAL_BOUNDARY_REPLAY_TOKENS = 8
 BOUNDARY_PROBE_MARKER = "Q3PLE_PI_CANONICAL_BOUNDARY_PROBE_7F2D1B9E"
@@ -76,14 +79,34 @@ def resolve_profile(path: str | Path = DEFAULT_PROFILE) -> tuple[Path, dict[str,
 
 def profile_contract(profile: Mapping[str, Any]) -> list[str]:
     errors: list[str] = []
-    if profile.get("profile_id") != "q3ple_daily_80k_reasoning_v1":
-        errors.append("unexpected reasoning profile id")
+    server = profile.get("server", {})
+    # The frozen baseline is the only profile served from the pinned upstream
+    # port and state namespace. A profile that declares itself a placement
+    # candidate may serve the same reasoning contract, but only from its own
+    # identity: its own id, its own port, and its own state namespace. Every
+    # other clause below still applies unchanged, so a candidate cannot quietly
+    # differ in reasoning, sampling, or the one-slot client contract.
+    candidate = profile.get("placement_candidate")
+    if candidate is None:
+        if profile.get("profile_id") != BASELINE_PROFILE_ID:
+            errors.append("unexpected reasoning profile id")
+        if server.get("port") != BASELINE_UPSTREAM_PORT:
+            errors.append(f"reasoning server must use port {BASELINE_UPSTREAM_PORT}")
+    else:
+        if not isinstance(candidate, dict):
+            errors.append("placement_candidate must be an object")
+        if profile.get("candidate_of") != BASELINE_PROFILE_ID:
+            errors.append(f"a placement candidate must declare candidate_of {BASELINE_PROFILE_ID!r}")
+        if profile.get("profile_id") in (None, "", BASELINE_PROFILE_ID):
+            errors.append("a placement candidate needs its own profile id")
+        port = server.get("port")
+        if not isinstance(port, int) or port <= 0 or port == BASELINE_UPSTREAM_PORT:
+            errors.append("a placement candidate needs its own upstream port")
+    if server.get("slot_count") != 1 or server.get("slot_id") != 0:
+        errors.append("reasoning server must use slot 0 of 1")
     policy = profile.get("policy", {})
     if policy.get("default_mode") != "target" or policy.get("allowed_modes") != ["target"]:
         errors.append("reasoning profile must allow only target mode")
-    server = profile.get("server", {})
-    if server.get("port") != 18090 or server.get("slot_count") != 1 or server.get("slot_id") != 0:
-        errors.append("reasoning server must use port 18090 and slot 0/1")
     if server.get("modes", {}).get("mtp", {}).get("enabled") is not False:
         errors.append("MTP must be disabled for the reasoning baseline")
     if server.get("modes", {}).get("target", {}).get("enabled") is not True:
@@ -107,8 +130,11 @@ def profile_contract(profile: Mapping[str, Any]) -> list[str]:
     if contract.get("required_extra_body") != {"id_slot": 0, "cache_prompt": True, "parallel": 1}:
         errors.append("one-slot client contract is incomplete")
     state_dir = str(profile.get("state", {}).get("directory", ""))
-    if "q3ple_daily_reasoning_v1" not in state_dir:
-        errors.append("reasoning state namespace is not isolated")
+    if candidate is None:
+        if BASELINE_STATE_MARKER not in state_dir:
+            errors.append("reasoning state namespace is not isolated")
+    elif not state_dir or BASELINE_STATE_MARKER in state_dir:
+        errors.append("a placement candidate must not write into the baseline state namespace")
     return errors
 
 
@@ -769,7 +795,7 @@ def validate(profile_path: str | Path, pi_models_path: str | Path) -> dict[str, 
         "pi_models": str((Path(pi_models_path) if Path(pi_models_path).is_absolute() else ROOT / Path(pi_models_path)).resolve()),
         "pi_version": "0.83.0",
         "listen": "127.0.0.1:18091",
-        "upstream": "127.0.0.1:18090",
+        "upstream": f"{profile['server']['host']}:{profile['server']['port']}",
         "model": MODEL_ID,
         "allowed_harnesses": ["pi", "deepseek-harness"],
         "errors": errors,

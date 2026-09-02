@@ -1,0 +1,99 @@
+# DeepSeek Harness patch layer for the Q3_PLE local agent benchmark.
+#
+# Apply with:
+#   dsh --profile headless --patch <this file> "<job>"
+#
+# Every row replaces the targeted row's complete `config` value; the loader
+# does not deep-merge keys, so each block below restates the whole config.
+#
+# The route points at the loopback Pi/DSH adapter, not at the model server.
+# The adapter owns id_slot, cache_prompt, parallel and the cache accounting
+# contract. Nothing here may point at a non-loopback address.
+
+- id: llm-pi-ai
+  config:
+    providers:
+      q3ple-local:
+        displayName: Qwen3.8 Flash-Next Q3_PLE local
+        api: openai-completions
+        baseURL: http://127.0.0.1:18091/v1
+        apiKeyEnv: Q3PLE_LOCAL_API_KEY
+        compat:
+          supportsDeveloperRole: false
+          supportsReasoningEffort: true
+          supportsUsageInStreaming: false
+          supportsStrictMode: false
+          maxTokensField: max_tokens
+          thinkingFormat: qwen-chat-template
+          chatTemplateKwargs:
+            enable_thinking: true
+            preserve_thinking: false
+        reasoning: medium
+        models:
+          - id: q3ple-daily-reasoning
+            name: Qwen3.8 Flash-Next Q3_PLE local reasoning
+            # Only the levels the pinned profile actually serves. A level that
+            # is absent here is not offered, so `off` stays out: the profile
+            # runs with reasoning on.
+            reasoningEfforts:
+              low: low
+              medium: medium
+              high: high
+            input:
+              - text
+            contextWindow: 81920
+            maxTokens: 16384
+            cost:
+              input: 0
+              output: 0
+              cacheRead: 0
+              cacheWrite: 0
+
+- id: agent-default-model
+  config:
+    provider: q3ple-local
+    model: q3ple-daily-reasoning
+
+# Read-only file effects. On Windows the ACL restricted-token backend reports
+# partial enforcement, so the disposable-worktree and verifier gates stay the
+# authoritative boundary; this row is defence in depth, not the whole fence.
+- id: sandbox-policy
+  config:
+    mode: read-only
+    workspaceRoot: !!js process.cwd()
+
+# A headless run has no one to answer an approval prompt. Pair `never` only
+# with the read-only sandbox mode above.
+- id: approval
+  config:
+    policy: never
+
+# The preset table must name the composed sandbox/approval pair or the
+# permission service refuses to boot. `read-only-headless` is that pair: no
+# writes, and no approval prompt for a run with no operator attached.
+- id: permission
+  config:
+    defaultPreset: read-only-headless
+    presets:
+      read-only-headless:
+        sandbox: read-only
+        approval: never
+        name: Read-only headless benchmark
+        description: No file writes and no approval prompts, for unattended benchmark runs.
+      read-only:
+        sandbox: read-only
+        approval: ask
+      workspace-write:
+        sandbox: workspace-write
+        approval: ask
+      danger-full-access:
+        sandbox: danger-full-access
+        approval: never
+
+# The session-title plugin issues its own short completion through the same
+# provider route. That request is a different conversation, so the adapter's
+# append-only canonical-history contract rejects it and latches the session
+# failed closed. A single-slot cache benchmark serves one conversation, so the
+# title generator is disabled rather than given a second route.
+- id: session-title-llm
+  disabled: true

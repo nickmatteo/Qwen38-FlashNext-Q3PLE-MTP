@@ -45,6 +45,7 @@ LOGS_DIR = STATE_DIR / "logs"
 PARSER_HELPER = ROOT / "scripts/q3ple_agentic_slot_extend.py"
 
 CANDIDATE_RUNTIME_COMMIT = "73b803464f25fc9054046728bf2ebed5a372737e"
+BASELINE_N_CPU_MOE = 48
 DEFAULT_PORT = 18089
 MIN_RAM_BYTES = 6 * 1024**3
 LAUNCH_MIN_RAM_BYTES = 40 * 1024**3
@@ -219,6 +220,34 @@ def validate_profile(profile: dict[str, Any] | None = None, *, check_files: bool
         ctx_value = None
     if ctx_value != 81920:
         errors.append("base args do not pin ctx-size 81920")
+    # The n48 placement is the frozen baseline. A profile may test a different
+    # MoE split, but only by declaring itself a candidate and naming the
+    # baseline it deviates from, so the deviation is explicit in the file and
+    # not a silent edit. A candidate must also be a separate identity: its own
+    # profile id, its own server port, and its own state directory. Sharing any
+    # of those would let a candidate run overwrite the baseline's state.
+    expected_n_cpu_moe = str(BASELINE_N_CPU_MOE)
+    candidate = profile.get("placement_candidate")
+    if candidate is not None:
+        if not isinstance(candidate, dict):
+            errors.append("placement_candidate must be an object")
+        else:
+            expected_n_cpu_moe = str(candidate.get("n_cpu_moe"))
+            baseline_id = candidate.get("baseline_profile_id")
+            baseline_port = candidate.get("baseline_port")
+            baseline_state = candidate.get("baseline_state_directory")
+            if not baseline_id or not baseline_port or not baseline_state:
+                errors.append(
+                    "placement_candidate must name baseline_profile_id, baseline_port and baseline_state_directory"
+                )
+            if profile.get("candidate_of") != baseline_id:
+                errors.append("candidate_of must equal placement_candidate.baseline_profile_id")
+            if profile.get("profile_id") == baseline_id:
+                errors.append("a placement candidate must not reuse the baseline profile id")
+            if int(server.get("port", 0)) == int(baseline_port or 0):
+                errors.append("a placement candidate must not reuse the baseline server port")
+            if str(profile.get("state", {}).get("directory", "")) == str(baseline_state):
+                errors.append("a placement candidate must not reuse the baseline state directory")
     required_values = {
         "--parallel": "1",
         "--threads": "11",
@@ -227,7 +256,7 @@ def validate_profile(profile: dict[str, Any] | None = None, *, check_files: bool
         "--ubatch-size": "256",
         "--cache-type-k": "q4_0",
         "--cache-type-v": "q4_0",
-        "--n-cpu-moe": "48",
+        "--n-cpu-moe": expected_n_cpu_moe,
     }
     args = base_args
     for flag, expected in required_values.items():

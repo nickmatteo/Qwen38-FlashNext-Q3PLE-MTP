@@ -157,8 +157,19 @@ class AgentSchemaTests(unittest.TestCase):
         manifest = json.loads((AGENT_ROOT / "pilot-manifest.json").read_text(encoding="utf-8"))
         self.assertEqual(manifest["harness_order"], ["pi", "deepseek-harness"])
         self.assertEqual(manifest["initial_mode"], "target")
-        self.assertFalse(manifest["promotion_gates"]["live_20_turn_cache_proof"])
+        # The lifecycle gates flip to true as each one is actually measured.
+        # The pilot itself stays unpromoted until real tasks exist, which is
+        # what the task pack and its count record.
         self.assertEqual(manifest["tasks"], [])
+        self.assertEqual(manifest["promotion_gates"]["pilot_task_count"], 0)
+        self.assertNotEqual(manifest["status"], "PROMOTED")
+
+    def test_pilot_manifest_records_the_placement_baseline(self):
+        manifest = json.loads((AGENT_ROOT / "pilot-manifest.json").read_text(encoding="utf-8"))
+        baseline = manifest["placement_baseline"]
+        self.assertEqual(baseline["n_cpu_moe"], 48)
+        self.assertEqual(baseline["profile"], "profiles/q3ple_daily_80k_reasoning.json")
+        self.assertIn("q3ple_daily_80k_reasoning_n47_v1", baseline["rejected_candidates"])
 
 
 if __name__ == "__main__":

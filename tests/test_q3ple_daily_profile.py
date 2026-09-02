@@ -106,6 +106,38 @@ class DailyProfileTests(unittest.TestCase):
         expected = int(getattr(daily.subprocess, "CREATE_NO_WINDOW", 0)) if daily.os.name == "nt" else 0
         self.assertEqual(check.call_args.kwargs["creationflags"], expected)
 
+    def _reasoning_profile(self):
+        return daily.load_profile(daily.ROOT / "profiles/q3ple_daily_80k_reasoning.json")
+
+    def test_undeclared_placement_change_is_rejected(self):
+        profile = self._reasoning_profile()
+        args = profile["server"]["base_args"]
+        args[args.index("--n-cpu-moe") + 1] = "47"
+        errors = daily.validate_profile(profile)
+        self.assertTrue(any("--n-cpu-moe" in error for error in errors), errors)
+
+    def test_declared_placement_candidate_is_accepted(self):
+        candidate = daily.load_profile(daily.ROOT / "profiles/q3ple_daily_80k_reasoning_n47.json")
+        args = candidate["server"]["base_args"]
+        self.assertEqual(args[args.index("--n-cpu-moe") + 1], "47")
+        self.assertEqual(daily.validate_profile(candidate), [])
+
+    def test_placement_candidate_may_not_share_baseline_identity(self):
+        for key, value in (
+            ("profile_id", "q3ple_daily_80k_reasoning_v1"),
+            ("port", 18090),
+            ("state_directory", "results/QWEN38-MTP-PROTOTYPE-001/state/q3ple_daily_reasoning_v1"),
+        ):
+            with self.subTest(shared=key):
+                candidate = daily.load_profile(daily.ROOT / "profiles/q3ple_daily_80k_reasoning_n47.json")
+                if key == "profile_id":
+                    candidate["profile_id"] = value
+                elif key == "port":
+                    candidate["server"]["port"] = value
+                else:
+                    candidate["state"]["directory"] = value
+                self.assertNotEqual(daily.validate_profile(candidate), [])
+
     def test_profile_and_dry_run_are_pinned(self):
         profile = daily.load_profile()
         self.assertEqual(daily.validate_profile(profile), [])

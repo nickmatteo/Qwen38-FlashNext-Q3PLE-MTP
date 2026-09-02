@@ -20,10 +20,29 @@
   "promotion_gates": {
     "profile_valid": true,
     "adapter_static_tests": true,
-    "live_20_turn_cache_proof": false,
+    "live_20_turn_cache_proof": true,
     "restart_restore_tool_continuation": false,
     "snapshot_catalog_recovery": false,
     "pilot_task_count": 0
   },
-  "tasks": []
+  "tasks": [],
+  "harness_pins": {
+    "pi": {
+      "version": "0.83.0"
+    },
+    "deepseek-harness": {
+      "package": "@deepseek-ai/dsh",
+      "version": "0.1.2-alpha.4",
+      "commit": "4e84901e6471b79ec0338099867ebb4606d12bb5",
+      "profile": "headless",
+      "patch": "benchmarks/dsh/cordis.patch.yml"
+    }
+  },
+  "placement_baseline": {
+    "profile": "profiles/q3ple_daily_80k_reasoning.json",
+    "n_cpu_moe": 48,
+    "rejected_candidates": [
+      "q3ple_daily_80k_reasoning_n47_v1"
+    ]
+  }
 }

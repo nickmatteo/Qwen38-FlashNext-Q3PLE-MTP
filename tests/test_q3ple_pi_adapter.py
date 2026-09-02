@@ -35,6 +35,46 @@ class PiAdapterTests(unittest.TestCase):
         self.assertTrue(result["valid"], result["errors"])
         self.assertEqual(result["allowed_harnesses"], ["pi", "deepseek-harness"])
 
+    def _candidate(self):
+        _, profile = self.adapter.resolve_profile(
+            ROOT / "profiles" / "q3ple_daily_80k_reasoning_n47.json"
+        )
+        return profile
+
+    def test_declared_placement_candidate_serves_its_own_upstream(self):
+        result = self.adapter.validate(
+            ROOT / "profiles" / "q3ple_daily_80k_reasoning_n47.json",
+            ROOT / "benchmarks" / "pi" / "models.json",
+        )
+        self.assertTrue(result["valid"], result["errors"])
+        self.assertEqual(result["upstream"], "127.0.0.1:18092")
+
+    def test_undeclared_profile_may_not_move_off_the_baseline_upstream(self):
+        profile = json.loads(json.dumps(self.profile))
+        profile["server"]["port"] = 18092
+        self.assertNotEqual(self.adapter.profile_contract(profile), [])
+
+    def test_placement_candidate_may_not_borrow_baseline_identity(self):
+        for key in ("profile_id", "candidate_of", "port", "state"):
+            with self.subTest(shared=key):
+                profile = json.loads(json.dumps(self._candidate()))
+                if key == "profile_id":
+                    profile["profile_id"] = self.adapter.BASELINE_PROFILE_ID
+                elif key == "candidate_of":
+                    profile["candidate_of"] = "something-else"
+                elif key == "port":
+                    profile["server"]["port"] = self.adapter.BASELINE_UPSTREAM_PORT
+                else:
+                    profile["state"]["directory"] = (
+                        "results/QWEN38-MTP-PROTOTYPE-001/state/q3ple_daily_reasoning_v1"
+                    )
+                self.assertNotEqual(self.adapter.profile_contract(profile), [])
+
+    def test_placement_candidate_still_obeys_the_reasoning_contract(self):
+        profile = json.loads(json.dumps(self._candidate()))
+        profile["reasoning"]["effort"] = "high"
+        self.assertNotEqual(self.adapter.profile_contract(profile), [])
+
     def test_request_contract_and_sampling_are_forced(self):
         forced = self.adapter.force_request(
             {
