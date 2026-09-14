@@ -23,7 +23,7 @@ explicitly approved.
 | Freeze claims and minimal public file set | DONE | Every number maps to a preserved result; no absolute first claim |
 | Add runtime, profile, gateway, evidence, and documentation | DONE | Daily 4-patch and occupied-60K 24-patch deltas; distinct profiles and receipts |
 | Run tests, redaction scan, links, and public-release checks | DONE | 130 tests, public validator, changed-file scan, tree reconstruction, card render, and independent evidence review pass |
-| Commit, push, and open PR to public `main` | PENDING | Exact refs and PR URL |
+| Commit, push, and open PR to public `main` | DONE | Publication commit `e5b7da3`; public PR #3 targets `main` |
 | Update LinkedIn project | BLOCKED | T3 preview has no authenticated LinkedIn session; Windows Computer Use native pipe is unavailable |
 | Prepare LinkedIn post | DONE | Date-bounded draft and 1200 x 627 card prepared; publication remains unapproved |
 

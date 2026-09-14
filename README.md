@@ -36,7 +36,7 @@ Third-party leaderboard values for the base model have changed since release
 and are not used as evidence for this derivative. **This project has not yet
 established that the Q3_PLE target retains the base model's broad capability.**
 
-The work here attacks a different problem: **how far can a frontier-ranked open-weight model be pushed on a small, imperfect, real desktop?**
+The work here attacks a different problem: **how far can a large open-weight model be pushed on a small, imperfect, real desktop?**
 
 ## The result in plain English
 
