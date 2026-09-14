@@ -1,0 +1,72 @@
+From 33caf1275ccd7098816556466ff3dd0d205bf49c Mon Sep 17 00:00:00 2001
+From: Nick Matteo <nickmatteo@users.noreply.github.com>
+Date: Thu, 3 Sep 2026 13:25:34 -0400
+Subject: [PATCH 03/24] fix(direct-reader): Unicode-safe CreateFileW and robust
+ overlapped event error handling
+
+---
+ src/llama-lazy-reader.h |  7 +++++--
+ src/llama-model.cpp     | 23 ++++++++++++++---------
+ 2 files changed, 19 insertions(+), 11 deletions(-)
+
+diff --git a/src/llama-lazy-reader.h b/src/llama-lazy-reader.h
+index 894fc8a3e4de9b05ae14dadf7a53ab2bb9becdba..4483529bccb080e6bf399df562211c0a3e5e0478 100644
+--- a/src/llama-lazy-reader.h
++++ b/src/llama-lazy-reader.h
+@@ -113,6 +113,9 @@ private:
+     void run_range(const std::vector<std::pair<int32_t, int32_t>> & pairs,
+                    int64_t begin, int64_t end, float * dst) const {
+         HANDLE hEvent = ::CreateEvent(NULL, TRUE, FALSE, NULL);
++        if (!hEvent || hEvent == INVALID_HANDLE_VALUE) {
++            throw std::runtime_error(format("lazy direct read failed to create event: Win32 error %lu", ::GetLastError()));
++        }
+         struct AutoEvent {
+             HANDLE h;
+             ~AutoEvent() { if (h && h != INVALID_HANDLE_VALUE) ::CloseHandle(h); }
+@@ -141,10 +144,10 @@ private:
+                     if (err == ERROR_IO_PENDING) {
+                         if (!::GetOverlappedResult(hFile, &ov, &n_read, TRUE)) {
+                             err = ::GetLastError();
+-                            throw std::runtime_error(format("lazy direct read overlapped wait failed: Win32 error %lu", err));
++                            throw std::runtime_error(format("lazy direct read overlapped wait failed: Win32 error %lu at offset %zu", err, cur_off));
+                         }
+                     } else {
+-                        throw std::runtime_error(format("lazy direct read failed: Win32 error %lu at offset %zu", err, cur_off));
++                        throw std::runtime_error(format("lazy direct read ReadFile failed: Win32 error %lu at offset %zu", err, cur_off));
+                     }
+                 }
+                 if (n_read == 0) {
+diff --git a/src/llama-model.cpp b/src/llama-model.cpp
+index 229b4f420e303060411003a8ac86d6bc68e06cf3..0837dedb68bb41c7341367c1782fe5d9d169ffc7 100644
+--- a/src/llama-model.cpp
++++ b/src/llama-model.cpp
+@@ -1840,15 +1840,20 @@ const llama_lazy_reader * llama_model_base::load_lazy_reader(llama_model_loader
+ 
+     const std::string & fname = ml.files[w->idx]->name();
+ #ifdef _WIN32
+-    HANDLE hFile = ::CreateFileA(
+-        fname.c_str(),
+-        GENERIC_READ,
+-        FILE_SHARE_READ,
+-        NULL,
+-        OPEN_EXISTING,
+-        FILE_ATTRIBUTE_NORMAL | FILE_FLAG_RANDOM_ACCESS | FILE_FLAG_OVERLAPPED,
+-        NULL
+-    );
++    HANDLE hFile = INVALID_HANDLE_VALUE;
++    wchar_t * wfname = ggml_mbstowcs(fname.c_str());
++    if (wfname) {
++        hFile = ::CreateFileW(
++            wfname,
++            GENERIC_READ,
++            FILE_SHARE_READ,
++            NULL,
++            OPEN_EXISTING,
++            FILE_ATTRIBUTE_NORMAL | FILE_FLAG_RANDOM_ACCESS | FILE_FLAG_OVERLAPPED,
++            NULL
++        );
++        GGML_FREE(wfname);
++    }
+     if (hFile == INVALID_HANDLE_VALUE) {
+         LLAMA_LOG_WARN("%s: could not open %s for direct reads (Win32 error %lu), using lazy mmap reads\n",
+                 __func__, fname.c_str(), ::GetLastError());

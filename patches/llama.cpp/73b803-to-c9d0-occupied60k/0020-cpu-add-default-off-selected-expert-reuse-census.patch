@@ -1,0 +1,60 @@
+From ad2e99d81bc94644521023d794594a0a4056b7a8 Mon Sep 17 00:00:00 2001
+From: Nick Matteo <nickmatteo@users.noreply.github.com>
+Date: Sun, 6 Sep 2026 02:13:07 -0400
+Subject: [PATCH 20/24] cpu: add default-off selected-expert reuse census
+
+Assisted-by: ChatGPT
+---
+ ggml/src/ggml-cpu/ggml-cpu.c | 25 +++++++++++++++++++++++++
+ 1 file changed, 25 insertions(+)
+
+diff --git a/ggml/src/ggml-cpu/ggml-cpu.c b/ggml/src/ggml-cpu/ggml-cpu.c
+index deaa0c655df978a8f2949f0e0b257613d7153d20..e6c7f5d8daa540dd58b331b180cf8cdb45dbabd5 100644
+--- a/ggml/src/ggml-cpu/ggml-cpu.c
++++ b/ggml/src/ggml-cpu/ggml-cpu.c
+@@ -1458,6 +1458,8 @@ UseGgmlGemm2:;
+ 
+ #define MMID_MATRIX_ROW(row_id, i1) matrix_rows[(row_id)*ids->ne[0]*ids->ne[1] + (i1)]
+ 
++static bool qwen38_cpu_expert_trace = false;
++
+ struct mmid_row_mapping {
+     int32_t i1;
+     int32_t i2;
+@@ -1646,6 +1648,27 @@ static void ggml_compute_forward_mul_mat_id(
+         }
+     }
+ 
++    if (ith == 0 && qwen38_cpu_expert_trace) {
++        int active = 0, total = 0, paired = 0, max_rows = 0;
++        char entries[8192]; size_t used = 0;
++        entries[0] = '\0';
++        for (int expert = 0; expert < n_as; ++expert) {
++            int count = (int) matrix_row_counts[expert];
++            if (!count) { continue; }
++            total += count; paired += count / 2;
++            if (count > max_rows) { max_rows = count; }
++            int written = snprintf(entries + used, sizeof(entries) - used,
++                "%s[%d,%d]", active ? "," : "", expert, count);
++            GGML_ASSERT(written > 0 && (size_t) written < sizeof(entries) - used);
++            used += written; ++active;
++        }
++        fprintf(stderr, "qwen38_cpu_expert_json {\"name\":\"%s\",\"type\":\"%s\","
++            "\"width\":%lld,\"selected\":%d,\"active\":%d,\"total\":%d,"
++            "\"pairs\":%d,\"max_rows\":%d,\"k\":%lld,\"m\":%lld,\"experts\":[%s]}\n",
++            dst->name, ggml_type_name(type), (long long) ids->ne[1], n_ids,
++            active, total, paired, max_rows, (long long) ne00, (long long) ne01, entries);
++    }
++
+     // reset current_chunk
+     for (int cur_a = ith; cur_a < n_as; cur_a += nth) {
+         atomic_int * current_chunk_ctr = (atomic_int *)(atomic_current_chunk + cur_a);
+@@ -3848,6 +3871,8 @@ void ggml_cpu_init(void) {
+     static bool is_first_call = true;
+ 
+     if (is_first_call) {
++        const char * expert_trace = getenv("QWEN38_CPU_EXPERT_TRACE");
++        qwen38_cpu_expert_trace = expert_trace && atoi(expert_trace) == 1;
+         // initialize GELU, Quick GELU, SILU and EXP F32 tables
+         {
+             const uint64_t t_start = ggml_time_us(); UNUSED(t_start);

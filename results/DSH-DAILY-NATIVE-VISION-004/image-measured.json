@@ -1,0 +1,65 @@
+{
+  "name": "image-measured",
+  "request_bytes": 3436394,
+  "wall_seconds": 85.95151640003314,
+  "before": {
+    "utc": 1789356084.850347,
+    "rss_bytes": 36507205632,
+    "ram_available_bytes": 8293720064,
+    "gpu": {
+      "used_mib": 10234,
+      "free_mib": 1710,
+      "util_pct": 24
+    }
+  },
+  "after": {
+    "utc": 1789356170.85622,
+    "rss_bytes": 36504969216,
+    "ram_available_bytes": 8198373376,
+    "gpu": {
+      "used_mib": 10394,
+      "free_mib": 1550,
+      "util_pct": 8
+    }
+  },
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "{\"tier_count\": 5, \"roof_color\": \"teal\", \"frame_color\": \"red\", \"entry_feature\": \"torii gate\"}",
+          "reasoning_content": "The user wants a compact JSON with four keys: tier_count, roof_color, frame_color, entry_feature. Looking at the image, the pagoda has 5 tiers (confirmed by text \"5 tiers\"). The roof is teal/blue-green. The frame (walls/structure) is red/crimson. The entry feature is a torii gate (red gate structure at the front). I'll provide concise values.\n"
+        }
+      }
+    ],
+    "created": 1789356170,
+    "model": "AtomicChat/Qwen3.8-Flash-Next-AD-4.27bpw-Q3_PLE-M64",
+    "system_fingerprint": "b10696-4cae4d051",
+    "object": "chat.completion",
+    "usage": {
+      "completion_tokens": 119,
+      "prompt_tokens": 1054,
+      "total_tokens": 1173,
+      "prompt_tokens_details": {
+        "cached_tokens": 0
+      }
+    },
+    "id": "chatcmpl-v1kMeGt2a8e7x4vx20A2izxm0OwbJS9L",
+    "timings": {
+      "cache_n": 0,
+      "prompt_n": 1054,
+      "prompt_ms": 75221.23,
+      "prompt_per_token_ms": 71.3673908918406,
+      "prompt_per_second": 14.012001664955491,
+      "predicted_n": 119,
+      "predicted_ms": 10437.33,
+      "predicted_per_token_ms": 88.45194915254237,
+      "predicted_per_second": 11.305573360236766,
+      "draft_n": 76,
+      "draft_n_accepted": 72
+    }
+  },
+  "error": null
+}

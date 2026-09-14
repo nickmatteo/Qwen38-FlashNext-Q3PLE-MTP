@@ -21,14 +21,17 @@ host-placement work, and paired target plus `.dft` slot-state persistence.
 git clone https://github.com/quimmedes/cafe-llama.cpp.git
 Set-Location cafe-llama.cpp
 git checkout 035e22731a7fd70b9854b3a2d64ec68e9b1a45d3
-git am <path-to-this-repository>\patches\llama.cpp\cafe-035e227-to-73b803\*.patch
-git rev-parse HEAD
+$patches = Get-ChildItem <path-to-this-repository>\patches\llama.cpp\cafe-035e227-to-73b803\*.patch | Sort-Object Name
+git am --committer-date-is-author-date $patches.FullName
+git rev-parse 'HEAD^{tree}'
 ```
 
-The resulting head must be
-`73b803464f25fc9054046728bf2ebed5a372737e`. Patch application is source
-reconstruction, not proof that another compiler, driver, or GPU reproduces the
-published measurements.
+The resulting tree must be
+`db305f143fefd46da53db8a8d751b882da38274f`. The measured source commit was
+`73b803464f25fc9054046728bf2ebed5a372737e`; a reconstructed commit ID may
+differ because email patches do not retain original committer identity. Patch
+application is source reconstruction, not proof that another compiler, driver,
+or GPU reproduces the published measurements.
 
 ## License and provenance
 

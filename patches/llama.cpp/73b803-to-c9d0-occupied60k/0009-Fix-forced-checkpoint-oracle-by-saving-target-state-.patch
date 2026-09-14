@@ -1,0 +1,38 @@
+From 037ebcca09ffcf27612bd318fcb1b3abf452afb1 Mon Sep 17 00:00:00 2001
+From: Nick Matteo <nickmatteo@users.noreply.github.com>
+Date: Fri, 4 Sep 2026 16:58:32 -0400
+Subject: [PATCH 09/24] Fix forced checkpoint oracle by saving target state
+ before verification
+
+---
+ tools/server/server-context.cpp | 10 ++++++++++
+ 1 file changed, 10 insertions(+)
+
+diff --git a/tools/server/server-context.cpp b/tools/server/server-context.cpp
+index 2fa8b0c9c033768e1d751af3d27aafe7b80cbd6a..18b20928502ff7d84762252d31cc06f44ab442e3 100644
+--- a/tools/server/server-context.cpp
++++ b/tools/server/server-context.cpp
+@@ -3102,6 +3102,7 @@ private:
+ 
+             if (!draft.empty()) {
+                 const bool use_ckpt_tgt =
++                    server_spec_force_target_ckpt_replay_enabled() ||
+                     ctx_tgt_seq_rm_type == COMMON_CONTEXT_SEQ_RM_TYPE_FULL ||
+                    (ctx_tgt_seq_rm_type == COMMON_CONTEXT_SEQ_RM_TYPE_RS && draft.size() > llama_n_rs_seq(ctx_tgt));
+ 
+@@ -3112,6 +3113,15 @@ private:
+                     //const int64_t t_start = ggml_time_us();
+ 
+                     ckpt.update_tgt(ctx_tgt, slot.id, LLAMA_STATE_SEQ_FLAGS_PARTIAL_ONLY);
++                    if (server_spec_force_target_ckpt_replay_enabled() && server_spec_parity_trace_enabled()) {
++                        const json event = {
++                            {"event", "checkpoint_oracle_save"}, {"seq_id", slot.id},
++                            {"prompt_n", slot.prompt.n_tokens()}, {"pos_min", ckpt.pos_min},
++                            {"pos_max", ckpt.pos_max}, {"checkpoint_bytes", ckpt.size()},
++                            {"draft_width", draft.size()},
++                        };
++                        SRV_INF("mtp_trace_json %s\n", event.dump().c_str());
++                    }
+ 
+                     //const int64_t t_total = ggml_time_us() - t_start;
+                     //printf("checkpoint total: %f ms\n", t_total / 1000.0);

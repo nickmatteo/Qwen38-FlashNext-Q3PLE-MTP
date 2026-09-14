@@ -1,0 +1,57 @@
+From 7c13bd1235c25e445109b5e660d04965abb024c9 Mon Sep 17 00:00:00 2001
+From: Nick Matteo <nickmatteo@users.noreply.github.com>
+Date: Sun, 6 Sep 2026 02:22:11 -0400
+Subject: [PATCH 22/24] cpu: keep quant block fields shared and trace first
+ paired execution
+
+---
+ ggml/src/ggml-cpu/arch/x86/quants.c | 8 ++++----
+ ggml/src/ggml-cpu/ggml-cpu.c        | 9 +++++++++
+ 2 files changed, 13 insertions(+), 4 deletions(-)
+
+diff --git a/ggml/src/ggml-cpu/arch/x86/quants.c b/ggml/src/ggml-cpu/arch/x86/quants.c
+index 75b56beaf26254471827ef64309dd339283f665f..2d96fad64ae91e092450cee643b2149fb7f3e577 100644
+--- a/ggml/src/ggml-cpu/arch/x86/quants.c
++++ b/ggml/src/ggml-cpu/arch/x86/quants.c
+@@ -4134,8 +4134,8 @@ void qwen38_ggml_vec_dot_iq2_s_q8_K_pair(int n, float * s0, float * s1, const vo
+     __m256 accumf0 = _mm256_setzero_ps();
+     __m256 accumf1 = _mm256_setzero_ps();
+     for (int i = 0; i < nb; ++i) {
+-        const float d0 = GGML_CPU_FP16_TO_FP32(x[i].d0) * y0[i].d0;
+-        const float d1 = GGML_CPU_FP16_TO_FP32(x[i].d1) * y1[i].d1;
++        const float d0 = GGML_CPU_FP16_TO_FP32(x[i].d) * y0[i].d;
++        const float d1 = GGML_CPU_FP16_TO_FP32(x[i].d) * y1[i].d;
+         const uint8_t * GGML_RESTRICT qs = x[i].qs;
+         const uint8_t * GGML_RESTRICT qh = x[i].qh;
+         const uint16_t * GGML_RESTRICT signs = (const uint16_t *)(x[i].qs + QK_K/8);
+@@ -4238,8 +4238,8 @@ void qwen38_ggml_vec_dot_iq3_s_q8_K_pair(int n, float * s0, float * s1, const vo
+     __m256 accumf0 = _mm256_setzero_ps();
+     __m256 accumf1 = _mm256_setzero_ps();
+     for (int i = 0; i < nb; ++i) {
+-        const float d0 = GGML_CPU_FP16_TO_FP32(x[i].d0) * y0[i].d0;
+-        const float d1 = GGML_CPU_FP16_TO_FP32(x[i].d1) * y1[i].d1;
++        const float d0 = GGML_CPU_FP16_TO_FP32(x[i].d) * y0[i].d;
++        const float d1 = GGML_CPU_FP16_TO_FP32(x[i].d) * y1[i].d;
+         const uint8_t * GGML_RESTRICT qs = x[i].qs;
+         const uint8_t * GGML_RESTRICT qh = x[i].qh;
+         const uint16_t * GGML_RESTRICT signs = (const uint16_t *)x[i].signs;
+diff --git a/ggml/src/ggml-cpu/ggml-cpu.c b/ggml/src/ggml-cpu/ggml-cpu.c
+index da3348960a496d065e6368e3aea9e30ee548a06c..442613758b1360d997d64e6cf824352aa2ec6228 100644
+--- a/ggml/src/ggml-cpu/ggml-cpu.c
++++ b/ggml/src/ggml-cpu/ggml-cpu.c
+@@ -1496,6 +1496,15 @@ static void ggml_compute_forward_mul_mat_id_one_chunk(
+             type == GGML_TYPE_IQ2_S ? qwen38_ggml_vec_dot_iq2_s_q8_K_pair :
+             type == GGML_TYPE_IQ3_S ? qwen38_ggml_vec_dot_iq3_s_q8_K_pair :
+                                     qwen38_ggml_vec_dot_iq4_nl_q8_0_pair;
++        if (qwen38_cpu_expert_trace) {
++            static atomic_int noted[3] = {0, 0, 0};
++            const int which = type == GGML_TYPE_IQ2_S ? 0 : type == GGML_TYPE_IQ3_S ? 1 : 2;
++            if (atomic_fetch_add_explicit(&noted[which], 1, memory_order_relaxed) == 0) {
++                fprintf(stderr, "QWEN38_CPU_EXPERT_PAIR exercised type=%s width=%lld rows=%lld
++",
++                    ggml_type_name(type), (long long) ids->ne[1], (long long) (ir1_end-ir1_start));
++            }
++        }
+         int64_t row = ir1_start;
+         for (; row + 1 < ir1_end; row += 2) {
+             const struct mmid_row_mapping a = MMID_MATRIX_ROW(cur_a, row);

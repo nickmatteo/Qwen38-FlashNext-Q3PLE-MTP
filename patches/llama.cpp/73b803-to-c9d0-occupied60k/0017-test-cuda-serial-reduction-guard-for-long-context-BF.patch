@@ -1,0 +1,35 @@
+From 8686eea4984f6c88e0190c009f89e8e842fc9b9c Mon Sep 17 00:00:00 2001
+From: Nick Matteo <nickmatteo@users.noreply.github.com>
+Date: Sat, 5 Sep 2026 17:02:49 -0400
+Subject: [PATCH 17/24] test(cuda): serial reduction guard for long-context
+ BF16 QSA indexer
+
+---
+ ggml/src/ggml-cuda/ggml-cuda.cu | 14 ++++++++++++++
+ 1 file changed, 14 insertions(+)
+
+diff --git a/ggml/src/ggml-cuda/ggml-cuda.cu b/ggml/src/ggml-cuda/ggml-cuda.cu
+index 909ebd07b2f8955a305dcbf1b94700091eecb66c..5df4470a54cc6ee9e73a62379922a145bfe25e23 100644
+--- a/ggml/src/ggml-cuda/ggml-cuda.cu
++++ b/ggml/src/ggml-cuda/ggml-cuda.cu
+@@ -1865,6 +1865,20 @@ static void ggml_cuda_mul_mat(ggml_backend_cuda_context & ctx, const ggml_tensor
+     const int cc        = ggml_cuda_info().devices[ctx.device].cc;
+     const int warp_size = ggml_cuda_info().devices[ctx.device].warp_size;
+ 
++    // Default-off sparse-indexer parity guard: use serial reduction for tiny batches.
++    static const bool qwen38_bf16_indexer_enabled = [] {
++        const char * flag = std::getenv("QWEN38_BF16_INDEXER_MMVF");
++        return flag != nullptr && std::atoi(flag) == 1;
++    }();
++    if (qwen38_bf16_indexer_enabled && src0->type == GGML_TYPE_BF16 &&
++        src0->ne[0] == 2560 && (src0->ne[1] == 128 || src0->ne[1] == 512) &&
++        src0->ne[2] == 1 && src0->ne[3] == 1 && ne11 >= 2 && ne11 <= 4 && cc == 1200) {
++        static bool logged = false;
++        if (!logged) { GGML_LOG_INFO("QWEN38_BF16_INDEXER_MMVF active sparse indexer
++"); logged = true; }
++        ggml_cuda_mul_mat_vec_f(ctx, src0, src1, nullptr, dst);
++        return;
++    }
+     if (ggml_cuda_should_use_mmvf(src0->type, cc, src0->ne, src0->nb, ne11)) {
+         // The custom F16 vector kernel can be used over batched cuBLAS GEMM.
+         // But this is only faster for GPUs without tensor cores or with a thin src0 matrix (particularly KQV in attention)

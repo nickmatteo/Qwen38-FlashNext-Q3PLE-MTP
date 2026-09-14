@@ -1,0 +1,23 @@
+From 6d80cc6fbc022142f0c77b8cbb3b483c5cc47868 Mon Sep 17 00:00:00 2001
+From: Nick Matteo <nickmatteo@users.noreply.github.com>
+Date: Sat, 5 Sep 2026 17:03:29 -0400
+Subject: [PATCH 18/24] test: correct indexer activation log literal
+
+---
+ ggml/src/ggml-cuda/ggml-cuda.cu | 3 +--
+ 1 file changed, 1 insertion(+), 2 deletions(-)
+
+diff --git a/ggml/src/ggml-cuda/ggml-cuda.cu b/ggml/src/ggml-cuda/ggml-cuda.cu
+index 5df4470a54cc6ee9e73a62379922a145bfe25e23..1f52527fafd060a53d163eb9c6ab521ffd730e61 100644
+--- a/ggml/src/ggml-cuda/ggml-cuda.cu
++++ b/ggml/src/ggml-cuda/ggml-cuda.cu
+@@ -1874,8 +1874,7 @@ static void ggml_cuda_mul_mat(ggml_backend_cuda_context & ctx, const ggml_tensor
+         src0->ne[0] == 2560 && (src0->ne[1] == 128 || src0->ne[1] == 512) &&
+         src0->ne[2] == 1 && src0->ne[3] == 1 && ne11 >= 2 && ne11 <= 4 && cc == 1200) {
+         static bool logged = false;
+-        if (!logged) { GGML_LOG_INFO("QWEN38_BF16_INDEXER_MMVF active sparse indexer
+-"); logged = true; }
++        if (!logged) { GGML_LOG_INFO("QWEN38_BF16_INDEXER_MMVF active sparse indexer\n"); logged = true; }
+         ggml_cuda_mul_mat_vec_f(ctx, src0, src1, nullptr, dst);
+         return;
+     }

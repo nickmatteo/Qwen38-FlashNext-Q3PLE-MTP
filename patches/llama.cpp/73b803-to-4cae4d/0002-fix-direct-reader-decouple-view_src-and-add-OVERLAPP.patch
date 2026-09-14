@@ -1,0 +1,74 @@
+From 86bb1adb97969d5a059acdd2f0121f62dedf2819 Mon Sep 17 00:00:00 2001
+From: Your Name <you@example.com>
+Date: Thu, 3 Sep 2026 01:53:48 -0400
+Subject: [PATCH 2/4] fix(direct-reader): decouple view_src and add OVERLAPPED
+ event
+
+---
+ src/llama-lazy-reader.h | 10 ++++++++++
+ src/models/qwen4exp.cpp | 13 +++++--------
+ 2 files changed, 15 insertions(+), 8 deletions(-)
+
+diff --git a/src/llama-lazy-reader.h b/src/llama-lazy-reader.h
+index 117c6abb6..894fc8a3e 100644
+--- a/src/llama-lazy-reader.h
++++ b/src/llama-lazy-reader.h
+@@ -112,6 +112,12 @@ struct llama_lazy_reader {
+ private:
+     void run_range(const std::vector<std::pair<int32_t, int32_t>> & pairs,
+                    int64_t begin, int64_t end, float * dst) const {
++        HANDLE hEvent = ::CreateEvent(NULL, TRUE, FALSE, NULL);
++        struct AutoEvent {
++            HANDLE h;
++            ~AutoEvent() { if (h && h != INVALID_HANDLE_VALUE) ::CloseHandle(h); }
++        } auto_event{hEvent};
++
+         std::vector<uint8_t> bounce(row_size);
+         for (int64_t i = begin; i < end; ) {
+             int64_t j = i;
+@@ -121,6 +127,10 @@ private:
+             const size_t off = base + (size_t) pairs[i].first * row_size;
+             for (size_t done = 0; done < row_size; ) {
+                 OVERLAPPED ov = {};
++                ov.hEvent     = hEvent;
++                if (hEvent) {
++                    ::ResetEvent(hEvent);
++                }
+                 const size_t cur_off = off + done;
+                 ov.Offset     = (DWORD) (cur_off & 0xFFFFFFFF);
+                 ov.OffsetHigh = (DWORD) ((cur_off >> 32) & 0xFFFFFFFF);
+diff --git a/src/models/qwen4exp.cpp b/src/models/qwen4exp.cpp
+index 5584458ac..7a01623a2 100644
+--- a/src/models/qwen4exp.cpp
++++ b/src/models/qwen4exp.cpp
+@@ -1536,7 +1536,7 @@ public:
+         mctx = static_cast<const llama_memory_hybrid_idx_context *>(params.mctx);
+ 
+         const int64_t n = (int64_t) pmodel.hparams.ple_n_heads * params.ubatch.n_tokens;
+-        return pmodel.ple_reader ? (data && data->ne[1] == n) : (rows && rows->ne[0] == n);
++        return pmodel.ple_reader ? (data && data->ne[0] == (int64_t) (pmodel.hparams.ple_head_dim * pmodel.hparams.ple_n_heads) && data->ne[1] == params.ubatch.n_tokens) : (rows && rows->ne[0] == n);
+     }
+ 
+     ggml_tensor * rows = nullptr;   // I32 [ple_n_heads * n_tokens]
+@@ -1774,14 +1774,11 @@ ggml_tensor * llama_model_qwen4exp::graph::build_ple(
+     if (static_cast<const llama_model_qwen4exp &>(model).ple_reader) {
+         // direct-read mode: set_input() pre-gathers the rows host-side, so the
+         // staged tensor replaces ggml_get_rows and the table pages stay untouched.
+-        ple_inp->data = ggml_new_tensor_2d(ctx0, GGML_TYPE_F32,
+-                                           hparams.ple_head_dim, n_heads * n_tokens);
+-        ggml_set_input(ple_inp->data);
+-        ggml_tensor * data = ple_inp->data;
++        emb = ggml_new_tensor_2d(ctx0, GGML_TYPE_F32,
++                                 hparams.ple_head_dim * n_heads, n_tokens);
++        ggml_set_input(emb);
++        ple_inp->data = emb;
+         res->add_input(std::move(ple_inp));
+-
+-        // flatten the heads the same way ggml_get_rows would: slowest dimension
+-        emb = ggml_reshape_2d(ctx0, data, hparams.ple_head_dim * n_heads, n_tokens);
+     } else {
+         ple_inp->rows = ggml_new_tensor_1d(ctx0, GGML_TYPE_I32, n_heads * n_tokens);
+         ggml_set_input(ple_inp->rows);
+-- 
+2.40.0.windows.1
+

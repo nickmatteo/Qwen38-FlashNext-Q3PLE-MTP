@@ -14,6 +14,7 @@ CI and during review without loading a 78 GB target bundle.
 from __future__ import annotations
 
 import argparse
+from contextlib import contextmanager
 import ctypes
 import datetime as _dt
 import hashlib
@@ -45,6 +46,10 @@ LOGS_DIR = STATE_DIR / "logs"
 PARSER_HELPER = ROOT / "scripts/q3ple_agentic_slot_extend.py"
 
 CANDIDATE_RUNTIME_COMMIT = "73b803464f25fc9054046728bf2ebed5a372737e"
+CANDIDATE_RUNTIME_COMMITS = {
+    CANDIDATE_RUNTIME_COMMIT,
+    "4cae4d05122198c65895ee714780f4426aa76684",
+}
 BASELINE_N_CPU_MOE = 48
 DEFAULT_PORT = 18089
 MIN_RAM_BYTES = 6 * 1024**3
@@ -55,6 +60,7 @@ DAILY_GPU_FREE_MIB = 1024
 MAX_RSS_BYTES = 50 * 1024**3
 MAX_SWAP_GROWTH_BYTES = 1 * 1024**3
 WS_CAP_BYTES = 37 * 1024**3
+MIN_WS_CAP_BYTES = 16 * 1024**3
 HEALTH_TIMEOUT_SECONDS = 300
 REQUEST_TIMEOUT_SECONDS = 7200
 WATCHDOG_INTERVAL_SECONDS = 2.0
@@ -105,7 +111,7 @@ def _config(profile: dict[str, Any]) -> dict[str, Path | int | str]:
     artifacts = profile["artifacts"]
     server = profile["server"]
     state = profile["state"]
-    return {
+    config: dict[str, Path | int | str] = {
         "executable": resolve_path(runtime["executable"]),
         "worktree": resolve_path(runtime["worktree"]),
         "target": resolve_path(artifacts["target"]["first_shard"]),
@@ -116,6 +122,10 @@ def _config(profile: dict[str, Any]) -> dict[str, Path | int | str]:
         "host": str(server["host"]),
         "port": int(server["port"]),
     }
+    vision = artifacts.get("vision")
+    if isinstance(vision, dict) and vision.get("enabled"):
+        config["mmproj"] = resolve_path(vision["path"])
+    return config
 
 
 def configure_profile(path: str | Path | None = None) -> dict[str, Any]:
@@ -207,19 +217,54 @@ def validate_profile(profile: dict[str, Any] | None = None, *, check_files: bool
     server = profile.get("server", {})
     safety = profile.get("safety", {})
 
-    if runtime.get("commit") != CANDIDATE_RUNTIME_COMMIT:
+    if runtime.get("commit") not in CANDIDATE_RUNTIME_COMMITS:
         errors.append("runtime commit is not the slot-state candidate commit")
     if int(server.get("slot_count", 0)) != 1 or int(server.get("slot_id", -1)) != 0:
         errors.append("profile must have exactly one slot with id 0")
     if int(server.get("port", 0)) <= 0 or not str(server.get("host")):
         errors.append("server host/port is invalid")
     base_args = server.get("base_args", [])
+    vision = artifacts.get("vision")
+    if vision is not None:
+        if not isinstance(vision, dict) or vision.get("enabled") is not True:
+            errors.append("vision artifact must be an enabled object")
+        else:
+            required_vision_args = {
+                "--mmproj": "{mmproj}",
+                "--image-min-tokens": str(vision.get("image_min_tokens")),
+                "--image-max-tokens": str(vision.get("image_max_tokens")),
+            }
+            for flag, expected in required_vision_args.items():
+                try:
+                    actual = str(base_args[base_args.index(flag) + 1])
+                except (ValueError, IndexError):
+                    actual = None
+                if actual != expected:
+                    errors.append(f"base args {flag} is {actual!r}, expected {expected!r}")
+            if vision.get("offload") is False and "--no-mmproj-offload" not in base_args:
+                errors.append("CPU-placed vision requires --no-mmproj-offload")
     try:
         ctx_value = int(base_args[base_args.index("--ctx-size") + 1])
     except (ValueError, IndexError, TypeError):
         ctx_value = None
-    if ctx_value != 81920:
-        errors.append("base args do not pin ctx-size 81920")
+    expected_ctx_size = 81920
+    context_candidate = profile.get("context_candidate")
+    if context_candidate is not None:
+        if not isinstance(context_candidate, dict):
+            errors.append("context_candidate must be an object")
+        else:
+            try:
+                expected_ctx_size = int(context_candidate.get("ctx_size"))
+                baseline_ctx_size = int(context_candidate.get("baseline_ctx_size"))
+            except (TypeError, ValueError):
+                expected_ctx_size = -1
+                baseline_ctx_size = -1
+            if expected_ctx_size <= 0 or baseline_ctx_size != 81920:
+                errors.append("context_candidate must declare a positive ctx_size and baseline_ctx_size 81920")
+            if profile.get("candidate_of") != context_candidate.get("baseline_profile_id"):
+                errors.append("candidate_of must equal context_candidate.baseline_profile_id")
+    if ctx_value != expected_ctx_size:
+        errors.append(f"base args do not pin declared ctx-size {expected_ctx_size}")
     # The n48 placement is the frozen baseline. A profile may test a different
     # MoE split, but only by declaring itself a candidate and naming the
     # baseline it deviates from, so the deviation is explicit in the file and
@@ -278,20 +323,28 @@ def validate_profile(profile: dict[str, Any] | None = None, *, check_files: bool
     }.items():
         if mtp.get(key) != expected:
             errors.append(f"MTP {key} is {mtp.get(key)!r}, expected {expected!r}")
+    try:
+        configured_working_set_cap = int(safety.get("working_set_cap_bytes", 0))
+    except (TypeError, ValueError):
+        configured_working_set_cap = 0
+    if (
+        configured_working_set_cap < MIN_WS_CAP_BYTES
+        or configured_working_set_cap > WS_CAP_BYTES
+        or configured_working_set_cap % (1024**3) != 0
+    ):
+        errors.append("working-set cap must be a whole GiB between 16 GiB and 37 GiB")
+    configured_working_set_gib = configured_working_set_cap // (1024**3)
     expected_environment = {
         "QWEN38_MTP_UBATCH": "64",
         "QWEN38_MTP_DRAFT_EXPERT_OFFLOAD": "1",
         "GGML_CUDA_MOE_CACHE_MB": "0",
-        "QWEN38_WORKING_SET_CAP_GIB": "37",
+        "QWEN38_WORKING_SET_CAP_GIB": str(configured_working_set_gib),
     }
     if profile.get("environment") != expected_environment:
         errors.append("environment pins are not the validated daily values")
     client_contract = profile.get("client_contract", {})
     if client_contract.get("id_slot") != 0 or client_contract.get("cache_prompt") is not True or client_contract.get("parallel") != 1:
         errors.append("client contract must pin id_slot=0, cache_prompt=true, parallel=1")
-    if int(safety.get("working_set_cap_bytes", 0)) != WS_CAP_BYTES:
-        errors.append("working-set cap is not 37 GiB")
-
     # All nine DLL/EXE entries are part of the immutable runtime identity.  A
     # hash-only map is deliberate: bundle files live beside the pinned EXE.
     bundle = runtime.get("bundle", {})
@@ -326,7 +379,10 @@ def validate_profile(profile: dict[str, Any] | None = None, *, check_files: bool
         executable = config["executable"]
         target = config["target"]
         sidecar = config["sidecar"]
-        for label, path in (("runtime worktree", worktree), ("executable", executable), ("target", target), ("sidecar", sidecar)):
+        required_paths = [("runtime worktree", worktree), ("executable", executable), ("target", target), ("sidecar", sidecar)]
+        if "mmproj" in config:
+            required_paths.append(("mmproj", config["mmproj"]))
+        for label, path in required_paths:
             if not Path(path).exists():
                 errors.append(f"missing {label}: {path}")
         if Path(worktree).is_dir():
@@ -356,6 +412,19 @@ def validate_profile(profile: dict[str, Any] | None = None, *, check_files: bool
                 expected = str(artifacts["sidecar"].get("sha256", "")).upper()
                 if actual != expected:
                     errors.append(f"sidecar hash is {actual}, expected {expected}")
+        if "mmproj" in config:
+            mmproj = Path(config["mmproj"])
+            try:
+                expected_bytes = int(artifacts["vision"].get("bytes", -1))
+                if mmproj.stat().st_size != expected_bytes:
+                    errors.append(f"mmproj bytes are {mmproj.stat().st_size}, expected {expected_bytes}")
+            except (OSError, TypeError, ValueError, KeyError):
+                errors.append("mmproj bytes pin is missing, invalid, or unreadable")
+            if mmproj.is_file() and check_hashes:
+                actual = sha256_file(mmproj)
+                expected = str(artifacts["vision"].get("sha256", "")).upper()
+                if actual != expected:
+                    errors.append(f"mmproj hash is {actual}, expected {expected}")
         if Path(executable).is_file():
             for name, expected_hash in bundle.items():
                 path = Path(executable).parent / str(name)
@@ -397,6 +466,8 @@ def _replace_placeholders(value: str, config: dict[str, Any]) -> str:
         "{sidecar}": str(config["sidecar"]),
         "{slot_save_path}": str(config["slots_dir"]),
     }
+    if "mmproj" in config:
+        replacements["{mmproj}"] = str(config["mmproj"])
     for marker, replacement in replacements.items():
         value = value.replace(marker, replacement)
     return value
@@ -477,7 +548,11 @@ def _gpu_snapshot() -> dict[str, int]:
         raise ProfileError(f"unparseable nvidia-smi output: {output!r}") from error
 
 
-def preflight() -> dict[str, Any]:
+def preflight(profile: dict[str, Any] | None = None) -> dict[str, Any]:
+    profile = load_profile() if profile is None else profile
+    safety = profile["safety"]
+    runtime_gpu_floor_mib = int(safety["hard_gpu_free_mib"])
+    daily_gpu_floor_mib = int(safety["daily_gpu_free_mib"])
     virtual = psutil.virtual_memory()
     swap = psutil.swap_memory()
     gpu = _gpu_snapshot()
@@ -490,8 +565,8 @@ def preflight() -> dict[str, Any]:
         "launch_ram_floor_bytes": LAUNCH_MIN_RAM_BYTES,
         "launch_gpu_floor_mib": LAUNCH_GPU_FREE_MIB,
         "runtime_ram_floor_bytes": MIN_RAM_BYTES,
-        "runtime_gpu_floor_mib": HARD_GPU_FREE_MIB,
-        "daily_gpu_floor_mib": DAILY_GPU_FREE_MIB,
+        "runtime_gpu_floor_mib": runtime_gpu_floor_mib,
+        "daily_gpu_floor_mib": daily_gpu_floor_mib,
         "launch_gpu_util_ceiling_pct": 15,
     }
     failures = []
@@ -499,8 +574,8 @@ def preflight() -> dict[str, Any]:
         failures.append("available RAM below 40 GiB launch floor")
     if gpu["free_mib"] < LAUNCH_GPU_FREE_MIB:
         failures.append("free VRAM below 8192 MiB launch floor")
-    if gpu["free_mib"] < DAILY_GPU_FREE_MIB:
-        failures.append("free VRAM below 1024 MiB daily floor")
+    if gpu["free_mib"] < daily_gpu_floor_mib:
+        failures.append(f"free VRAM below {daily_gpu_floor_mib} MiB daily floor")
     if gpu["util_pct"] > 15:
         failures.append("GPU utilization above 15%")
     if failures:
@@ -704,16 +779,26 @@ def _runtime_snapshot(pid: int, initial_swap: int) -> dict[str, Any]:
     }
 
 
-def _watchdog_violation(snapshot: dict[str, Any]) -> list[str]:
+def _watchdog_violation(snapshot: dict[str, Any], safety: dict[str, Any] | None = None) -> list[str]:
+    safety = safety or {
+        "hard_ram_available_bytes": MIN_RAM_BYTES,
+        "hard_gpu_free_mib": HARD_GPU_FREE_MIB,
+        "max_owned_rss_bytes": MAX_RSS_BYTES,
+        "max_swap_growth_bytes": MAX_SWAP_GROWTH_BYTES,
+    }
     failures: list[str] = list(snapshot.get("failures", []))
-    if int(snapshot.get("ram_available_bytes", 0)) < MIN_RAM_BYTES:
-        failures.append("available RAM below 6 GiB runtime floor")
-    if int(snapshot.get("gpu", {}).get("free_mib", 0)) < HARD_GPU_FREE_MIB:
-        failures.append("free VRAM below 768 MiB runtime floor")
-    if int(snapshot.get("rss_bytes", 0)) > MAX_RSS_BYTES:
-        failures.append("owned RSS above 50 GiB runtime ceiling")
-    if int(snapshot.get("swap_growth_bytes", 0)) > MAX_SWAP_GROWTH_BYTES:
-        failures.append("swap growth above 1 GiB runtime ceiling")
+    ram_floor = int(safety["hard_ram_available_bytes"])
+    gpu_floor = int(safety["hard_gpu_free_mib"])
+    rss_ceiling = int(safety["max_owned_rss_bytes"])
+    swap_ceiling = int(safety["max_swap_growth_bytes"])
+    if int(snapshot.get("ram_available_bytes", 0)) < ram_floor:
+        failures.append(f"available RAM below {ram_floor} byte runtime floor")
+    if int(snapshot.get("gpu", {}).get("free_mib", 0)) < gpu_floor:
+        failures.append(f"free VRAM below {gpu_floor} MiB runtime floor")
+    if int(snapshot.get("rss_bytes", 0)) > rss_ceiling:
+        failures.append(f"owned RSS above {rss_ceiling} byte runtime ceiling")
+    if int(snapshot.get("swap_growth_bytes", 0)) > swap_ceiling:
+        failures.append(f"swap growth above {swap_ceiling} byte runtime ceiling")
     return failures
 
 
@@ -784,7 +869,7 @@ def _watchdog_main(state_path: Path, pid: int) -> int:
                 snapshot = _runtime_snapshot(pid, initial_swap)
             except Exception as error:
                 snapshot = {"utc": utc_now(), "pid": pid, "failures": [f"runtime telemetry unavailable: {error}"]}
-            failures = _watchdog_violation(snapshot)
+            failures = _watchdog_violation(snapshot, state.get("safety"))
             snapshot["failures"] = failures
             _append_telemetry(telemetry_path, snapshot)
             if failures:
@@ -821,7 +906,7 @@ def _artifact_identity(profile: dict[str, Any]) -> dict[str, Any]:
     artifacts = profile["artifacts"]
     target = artifacts["target"]
     sidecar = artifacts["sidecar"]
-    return {
+    identity = {
         "target": {
             "directory": str(target["directory"]),
             "first_shard": str(target["first_shard"]),
@@ -835,6 +920,17 @@ def _artifact_identity(profile: dict[str, Any]) -> dict[str, Any]:
             "bytes": int(sidecar["bytes"]),
         },
     }
+    vision = artifacts.get("vision")
+    if isinstance(vision, dict) and vision.get("enabled"):
+        identity["vision"] = {
+            "path": str(vision["path"]),
+            "sha256": str(vision.get("sha256", "")).upper(),
+            "bytes": int(vision["bytes"]),
+            "offload": bool(vision.get("offload", True)),
+            "image_min_tokens": int(vision["image_min_tokens"]),
+            "image_max_tokens": int(vision["image_max_tokens"]),
+        }
+    return identity
 
 
 def _immutable_profile_identity(profile: dict[str, Any]) -> dict[str, Any]:
@@ -869,7 +965,7 @@ def launch(mode: str) -> dict[str, Any]:
         raise ProfileError("an owned q3ple_daily server is already running")
     if not _port_free(str(config["host"]), int(config["port"])):
         raise ProfileError(f"port {config['port']} is already in use")
-    pre = preflight()
+    pre = preflight(profile)
     STATE_DIR.mkdir(parents=True, exist_ok=True)
     SLOTS_DIR.mkdir(parents=True, exist_ok=True)
     LOGS_DIR.mkdir(parents=True, exist_ok=True)
@@ -915,8 +1011,12 @@ def launch(mode: str) -> dict[str, Any]:
             "immutable_profile": _immutable_profile_identity(profile),
             "environment": dict(profile.get("environment", {})),
             "client_contract": json.loads(json.dumps(profile.get("client_contract", {}), sort_keys=True)),
+            "safety": json.loads(json.dumps(profile.get("safety", {}), sort_keys=True)),
         }
-        state["working_set_cap"] = set_working_set_cap(process, WS_CAP_BYTES)
+        state["working_set_cap"] = set_working_set_cap(
+            process,
+            int(profile["safety"]["working_set_cap_bytes"]),
+        )
         atomic_json(STATE_PATH, state)
         _wait_health(str(config["host"]), int(config["port"]), process, HEALTH_TIMEOUT_SECONDS)
         state["status"] = "running"
@@ -1246,7 +1346,8 @@ def save() -> dict[str, Any]:
         promotion_gpu = _gpu_snapshot()
     except ProfileError:
         raise
-    if promotion_gpu["free_mib"] < DAILY_GPU_FREE_MIB:
+    daily_gpu_floor = int(profile["safety"]["daily_gpu_free_mib"])
+    if promotion_gpu["free_mib"] < daily_gpu_floor:
         raise ProfileError(f"save/promotion refused below daily VRAM floor: {promotion_gpu['free_mib']} MiB")
     mode = str(state["mode"])
     basename = _slot_basename(mode)
@@ -1354,6 +1455,27 @@ def stop(save_before: bool = False) -> dict[str, Any]:
     return {"status": "stopped", "pid": state["pid"], "save_before_stop": saved}
 
 
+def retire_stale(state_path: Path | None = None) -> dict[str, Any]:
+    """Retire a stale state manifest whose recorded PID is dead or mismatched, without killing anything."""
+    target_path = STATE_PATH if state_path is None else Path(state_path)
+    state = _read_state(target_path)
+    if not state:
+        return {"action": "no_state", "path": str(target_path)}
+    if state.get("status") in ("starting", "running"):
+        if not identity_matches(state):
+            state["status"] = "stopped"
+            state["stale_retired_utc"] = utc_now()
+            state["stale_reason"] = "process no longer running or identity mismatched"
+            watcher = state.get("watchdog")
+            if isinstance(watcher, dict) and watcher.get("status") == "running":
+                if not identity_matches(watcher):
+                    watcher["status"] = "stopped"
+                    watcher["stale_retired_utc"] = utc_now()
+            atomic_json(target_path, state)
+            return {"action": "retired_stale", "path": str(target_path), "pid": state.get("pid")}
+    return {"action": "unchanged", "path": str(target_path), "status": state.get("status")}
+
+
 def status() -> dict[str, Any]:
     profile = load_profile()
     state = _read_state()
@@ -1436,10 +1558,45 @@ def build_parser() -> argparse.ArgumentParser:
     stop_parser.add_argument("--save-before-stop", action="store_true", help="save first; any save failure leaves the server running")
     smoke_parser = sub.add_parser("smoke", help="print a bounded non-live smoke plan")
     smoke_parser.add_argument("--mode", choices=("mtp", "target"), default="mtp")
+    sub.add_parser("retire-stale", help="safely retire a stale manifest without killing any processes")
     watchdog = sub.add_parser("watchdog", help=argparse.SUPPRESS)
     watchdog.add_argument("--state-path", required=True)
     watchdog.add_argument("--pid", required=True, type=int)
     return parser
+
+
+@contextmanager
+def lifecycle_lease(timeout_seconds: float = 600):
+    """Serialize CLI launches/stops across processes for the selected profile."""
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    path = STATE_DIR / "lifecycle.lock"
+    with path.open("a+b") as handle:
+        if path.stat().st_size == 0:
+            handle.write(b"0")
+            handle.flush()
+        deadline = time.monotonic() + timeout_seconds
+        while True:
+            handle.seek(0)
+            try:
+                if os.name == "nt":
+                    import msvcrt
+                    msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+                else:
+                    import fcntl
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except OSError as error:
+                if time.monotonic() >= deadline:
+                    raise ProfileError("another model launch or stop still holds the lifecycle lock") from error
+                time.sleep(0.1)
+        try:
+            yield
+        finally:
+            handle.seek(0)
+            if os.name == "nt":
+                msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -1454,15 +1611,19 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "status":
             print(json.dumps(status(), indent=2))
         elif args.command == "launch":
-            print(json.dumps(launch(args.mode), indent=2))
+            with lifecycle_lease():
+                print(json.dumps(launch(args.mode), indent=2))
         elif args.command == "save":
             print(json.dumps(save(), indent=2))
         elif args.command == "restore":
             print(json.dumps(restore(args.manifest, args.mode), indent=2))
         elif args.command == "stop":
-            print(json.dumps(stop(args.save_before_stop), indent=2))
+            with lifecycle_lease():
+                print(json.dumps(stop(args.save_before_stop), indent=2))
         elif args.command == "smoke":
             print(json.dumps(smoke_plan(args.mode), indent=2))
+        elif args.command == "retire-stale":
+            print(json.dumps(retire_stale(), indent=2))
         elif args.command == "watchdog":
             return _watchdog_main(Path(args.state_path).resolve(), int(args.pid))
         return 0

@@ -1,0 +1,39 @@
+From 2d681d5a615728263631dd88a01a05894c4a6075 Mon Sep 17 00:00:00 2001
+From: Nick Matteo <nickmatteo@users.noreply.github.com>
+Date: Fri, 4 Sep 2026 21:47:14 -0400
+Subject: [PATCH 13/24] test(cuda): isolate 512-expert top10 routing fusion
+
+---
+ ggml/src/ggml-cuda/topk-moe.cu | 13 +++++++++++++
+ 1 file changed, 13 insertions(+)
+
+diff --git a/ggml/src/ggml-cuda/topk-moe.cu b/ggml/src/ggml-cuda/topk-moe.cu
+index c8cec70bb3208508e68904d67d57d8f610fedccb..159ec67a114a8f47b1851efa33aa625988b30a71 100644
+--- a/ggml/src/ggml-cuda/topk-moe.cu
++++ b/ggml/src/ggml-cuda/topk-moe.cu
+@@ -3,6 +3,7 @@
+ #include "topk-moe.cuh"
+ 
+ #include <cmath>
++#include <cstdlib>
+ #include <initializer_list>
+ 
+ // Kernel config struct - passed by value to CUDA kernel
+@@ -434,5 +435,17 @@ bool ggml_cuda_should_use_topk_moe(const ggml_tensor * gating_op,
+         }
+     }
+ 
++    // Default-off Qwen routing-fusion discriminator; other fusions stay enabled.
++    if (n_expert == 512 && ids->ne[0] == 10 &&
++        ggml_cuda_info().devices[ggml_cuda_get_device()].cc == GGML_CUDA_CC_BLACKWELL) {
++        static const bool disabled = [] {
++            const char * value = std::getenv("QWEN38_UNFUSED_TOPK512_10");
++            const bool result = value != nullptr && std::atoi(value) == 1;
++            if (result) { GGML_LOG_INFO("QWEN38_UNFUSED_TOPK512_10 active otherwise-eligible routing\n"); }
++            return result;
++        }();
++        if (disabled) { return false; }
++    }
++
+     return true;
+ }

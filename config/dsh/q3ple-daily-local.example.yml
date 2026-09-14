@@ -1,0 +1,42 @@
+# Merge this provider into your DSH settings. Keep the gateway on loopback.
+# Set Q3PLE_DAILY_LOCAL_API_KEY to any non-empty local value required by your
+# client configuration; the example never stores a credential in this file.
+llm-pi-ai:
+  providers:
+    q3ple-daily-local:
+      api: openai-completions
+      apiKeyEnv: Q3PLE_DAILY_LOCAL_API_KEY
+      baseURL: http://127.0.0.1:18092/v1
+      displayName: Qwen3.8 Flash-Next Q3_PLE MTP 64K Native Vision
+      maxRequestImageBytes: 8388608
+      requestImagePixelBudget: 16777216
+      requestImageMaxBytes: 4194304
+      streamIdleTimeoutMs: 1800000
+      retryPolicy:
+        mode: normal
+        maxRetries: 0
+      compat:
+        supportsDeveloperRole: false
+        supportsReasoningEffort: true
+        supportsUsageInStreaming: false
+        supportsStrictMode: false
+        maxTokensField: max_tokens
+        thinkingFormat: qwen-chat-template
+        chatTemplateKwargs:
+          enable_thinking: true
+          preserve_thinking: false
+      reasoning: medium
+      models:
+        # This established route ID is retained for existing sessions. The
+        # measured runtime and context window are 64K.
+        - contextWindow: 65536
+          id: q3ple-fast-80k-mtp
+          input:
+            - text
+            - image
+          maxTokens: 1024
+          name: Qwen3.8 Flash-Next Q3_PLE MTP 64K Native Vision
+          reasoningEfforts:
+            low: low
+            medium: medium
+            high: high

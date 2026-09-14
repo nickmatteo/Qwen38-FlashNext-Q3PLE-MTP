@@ -1,0 +1,63 @@
+From 60c61799ccb29815799a64a06a2b3398f2669ecb Mon Sep 17 00:00:00 2001
+From: Nick Matteo <nickmatteo@users.noreply.github.com>
+Date: Sat, 5 Sep 2026 13:08:21 -0400
+Subject: [PATCH 15/24] fix test routing: preserve standalone selected and
+ boundary tie ordering
+
+---
+ ggml/src/ggml-cuda/topk-moe.cu | 35 ++++++++++++++++++++++++++++++++++
+ 1 file changed, 35 insertions(+)
+
+diff --git a/ggml/src/ggml-cuda/topk-moe.cu b/ggml/src/ggml-cuda/topk-moe.cu
+index ff3edcb4f3d6c1e9dd401912800d01f8588aea14..2726b84ba4b96389006942fe2fd929b8ee8dfee0 100644
+--- a/ggml/src/ggml-cuda/topk-moe.cu
++++ b/ggml/src/ggml-cuda/topk-moe.cu
+@@ -89,6 +89,8 @@ __global__ __launch_bounds__(512, 1) void qwen38_topk_reference512(
+     __shared__ float reduce_buf[32];
+     __shared__ float probs[512];
+     __shared__ float selected[10];
++    __shared__ int sort_ids[512];
++    __shared__ bool has_selected_tie;
+     ggml_cuda_pdl_sync();
+     const float value = logits[(size_t) row * 512 + tid];
+     const float max_value = block_reduce<block_reduce_method::MAX, 512>(value, reduce_buf);
+@@ -124,6 +126,39 @@ __global__ __launch_bounds__(512, 1) void qwen38_topk_reference512(
+         }
+     }
+     __syncthreads();
++    // Standalone bitonic argsort is not stable across equal probabilities.
++    // Preserve its exact index ordering only when a selected or boundary tie occurs.
++    if (tid == 0) {
++        has_selected_tie = false;
++        for (int i = 0; i < 9; ++i) {
++            if (selected[i] == selected[i + 1]) { has_selected_tie = true; }
++        }
++    }
++    const int boundary_count = __syncthreads_count(probs[tid] == selected[9]);
++    if (has_selected_tie || boundary_count > 1) {
++        sort_ids[tid] = tid;
++        __syncthreads();
++        for (int k = 2; k <= 512; k *= 2) {
++            for (int j = k / 2; j > 0; j /= 2) {
++                const int other = tid ^ j;
++                if (other > tid) {
++                    const float a = probs[sort_ids[tid]];
++                    const float b = probs[sort_ids[other]];
++                    const bool swap = (tid & k) == 0 ? a < b : a > b;
++                    if (swap) {
++                        const int tmp = sort_ids[tid];
++                        sort_ids[tid] = sort_ids[other]; sort_ids[other] = tmp;
++                    }
++                }
++                __syncthreads();
++            }
++        }
++        if (tid < 10) {
++            selected[tid] = probs[sort_ids[tid]];
++            ids[(size_t) row * 512 + tid] = sort_ids[tid];
++        }
++        __syncthreads();
++    }
+     float selected_sum = tid < 10 ? selected[tid] : 0.0f;
+     selected_sum = block_reduce<block_reduce_method::SUM>(selected_sum, reduce_buf);
+     selected_sum = fmaxf(selected_sum, clamp_val);
