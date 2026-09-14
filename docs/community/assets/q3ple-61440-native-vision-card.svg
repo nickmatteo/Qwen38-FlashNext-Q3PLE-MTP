@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="627" viewBox="0 0 1200 627" role="img" aria-labelledby="title desc">
+  <title id="title">20.253 tokens per second at 61,440 retained tokens</title>
+  <desc id="desc">Qwen3.8-Flash-Next on an RTX 5070 12 GB, with 27 exact outputs in a three-condition matrix.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#07111f"/>
+      <stop offset="1" stop-color="#111a2c"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#72e3ff"/>
+      <stop offset="1" stop-color="#9bffb0"/>
+    </linearGradient>
+    <filter id="glow" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur stdDeviation="22"/>
+    </filter>
+  </defs>
+  <rect width="1200" height="627" fill="url(#bg)"/>
+  <circle cx="1090" cy="45" r="210" fill="#2b94c4" opacity=".14" filter="url(#glow)"/>
+  <rect x="54" y="46" width="1092" height="535" rx="30" fill="#0a1424" stroke="#293d54" stroke-width="2"/>
+  <rect x="54" y="46" width="10" height="535" rx="5" fill="url(#accent)"/>
+
+  <text x="94" y="98" fill="#8ea8c1" font-family="Segoe UI, Arial, sans-serif" font-size="20" font-weight="600" letter-spacing="2">Q3_PLE OCCUPIED-CONTEXT RESULT</text>
+  <text x="94" y="186" fill="#8ff2ff" font-family="Segoe UI, Arial, sans-serif" font-size="82" font-weight="750">20.253 tok/s</text>
+  <text x="98" y="238" fill="#f4f8fc" font-family="Segoe UI, Arial, sans-serif" font-size="39" font-weight="700">at 61,440 retained tokens</text>
+  <text x="98" y="282" fill="#b6c7d8" font-family="Segoe UI, Arial, sans-serif" font-size="24">Qwen3.8-Flash-Next · discrete RTX 5070 · 12 GB VRAM</text>
+
+  <rect x="94" y="324" width="484" height="126" rx="20" fill="#101f32" stroke="#31516a"/>
+  <text x="124" y="363" fill="#8ca7bf" font-family="Segoe UI, Arial, sans-serif" font-size="18" font-weight="650">EXACTNESS GATE</text>
+  <text x="124" y="414" fill="#a6ffb3" font-family="Segoe UI, Arial, sans-serif" font-size="43" font-weight="750">27 / 27 exact</text>
+
+  <rect x="600" y="324" width="510" height="126" rx="20" fill="#101f32" stroke="#31516a"/>
+  <text x="630" y="363" fill="#8ca7bf" font-family="Segoe UI, Arial, sans-serif" font-size="18" font-weight="650">TARGET PROVENANCE</text>
+  <text x="630" y="407" fill="#f3f8fc" font-family="Segoe UI, Arial, sans-serif" font-size="26" font-weight="700">AD-4.27bpw-derived target</text>
+  <text x="630" y="435" fill="#a9bacb" font-family="Segoe UI, Arial, sans-serif" font-size="18">AtomicChat base · Q3_PLE table · 1.488 GB MTP</text>
+
+  <line x1="94" y1="486" x2="1110" y2="486" stroke="#263a50"/>
+  <text x="94" y="526" fill="#f3f8fc" font-family="Segoe UI, Arial, sans-serif" font-size="21" font-weight="650">31.45 tok/s · 232-token prompt · 16K allocation</text>
+  <text x="94" y="556" fill="#a9bacb" font-family="Segoe UI, Arial, sans-serif" font-size="16">Daily: 15.82 warm · 267.99 s cold · labeled-image smoke · no unified memory</text>
+  <text x="1110" y="556" text-anchor="end" fill="#77e6ff" font-family="Segoe UI, Arial, sans-serif" font-size="16" font-weight="650">github.com/nickmatteo/Qwen38-FlashNext-Q3PLE-MTP</text>
+</svg>

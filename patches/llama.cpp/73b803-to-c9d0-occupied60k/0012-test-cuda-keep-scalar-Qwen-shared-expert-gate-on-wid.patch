@@ -1,0 +1,41 @@
+From e8a70ed73f3e787a205fceaf77ece0f002851ca9 Mon Sep 17 00:00:00 2001
+From: Nick Matteo <nickmatteo@users.noreply.github.com>
+Date: Fri, 4 Sep 2026 20:53:50 -0400
+Subject: [PATCH 12/24] test(cuda): keep scalar Qwen shared expert gate on
+ width4 MMVF
+
+---
+ ggml/src/ggml-cuda/mmvf.cu | 16 ++++++++++++++++
+ 1 file changed, 16 insertions(+)
+
+diff --git a/ggml/src/ggml-cuda/mmvf.cu b/ggml/src/ggml-cuda/mmvf.cu
+index 0872ea72813d59d9396f8404141abdf609f6ed98..4ec3b160ad8d4862c44281fe6f8fbe214fa955a8 100644
+--- a/ggml/src/ggml-cuda/mmvf.cu
++++ b/ggml/src/ggml-cuda/mmvf.cu
+@@ -1,3 +1,4 @@
++#include <cstdio>
+ #include "ggml.h"
+ #include "common.cuh"
+ #include "unary.cuh"
+@@ -816,6 +817,21 @@ bool ggml_cuda_should_use_mmvf(enum ggml_type type, int cc, const int64_t * src0
+         }
+     }
+ 
++    // Default-off scalar shared-expert gate, isolated from the 512-way router.
++    if (type == GGML_TYPE_F32 && cc == GGML_CUDA_CC_BLACKWELL &&
++        src0_ne[0] == 2560 && src0_ne[1] == 1 &&
++        src0_ne[2] == 1 && src0_ne[3] == 1 && ne11 == 4) {
++        static const bool enabled = []() {
++            const char * value = getenv("QWEN38_SHEXP_F32_MMVF4");
++            const bool result = value != nullptr && atoi(value) == 1;
++            if (result) {
++                fprintf(stderr, "QWEN38_SHEXP_F32_MMVF4 active k=2560 m=1 n=4\n");
++            }
++            return result;
++        }();
++        if (enabled) { return true; }
++    }
++
+     switch (type) {
+         case GGML_TYPE_F32:
+             if (GGML_CUDA_CC_IS_NVIDIA(cc)) {

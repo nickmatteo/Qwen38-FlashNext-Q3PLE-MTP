@@ -4,6 +4,12 @@ This is the complete path from the source quant to the published Q3_PLE target,
 the learned-MTP sidecar, the 31.45 tok/s controlled result, and the canonical
 59,750-token restartable state. It also records the results we rejected.
 
+The September 14 refresh adds two later results: a 27-request qualification
+matrix at 61,440 retained tokens reaching 20.253 tok/s with exact outputs, and
+a separate 64K daily runtime with JIT loading plus native image input. Each
+qualification condition used three independent processes. The two results use
+different pinned runtime variants and sidecars and remain separate below.
+
 ![Q3_PLE canonical benchmark card](community/assets/q3ple-canonical-59750-card.png)
 
 ## 1. Start with the real bottleneck
@@ -79,14 +85,37 @@ used by the measured build:
 git clone https://github.com/quimmedes/cafe-llama.cpp.git
 Set-Location cafe-llama.cpp
 git checkout 035e22731a7fd70b9854b3a2d64ec68e9b1a45d3
-git am <research-repo>\patches\llama.cpp\cafe-035e227-to-73b803\*.patch
-git rev-parse HEAD
+$basePatches = Get-ChildItem <research-repo>\patches\llama.cpp\cafe-035e227-to-73b803\*.patch | Sort-Object Name
+git am --committer-date-is-author-date $basePatches.FullName
+git rev-parse 'HEAD^{tree}'
 ```
 
-The resulting head must be
-`73b803464f25fc9054046728bf2ebed5a372737e`. Our measured Windows build used
-CUDA 13.1, SM120a, and Flash Attention. Rebuilding the same source with another
-toolchain is a reproduction attempt, not the identical binary.
+The resulting tree must be
+`db305f143fefd46da53db8a8d751b882da38274f`. The measured source commit was
+`73b803464f25fc9054046728bf2ebed5a372737e`; patch reconstruction can produce a
+different commit ID because email patches omit original committer identity.
+Our measured Windows build used CUDA 13.1, SM120a, and Flash Attention.
+Rebuilding the same source with another toolchain is a reproduction attempt,
+not the identical binary.
+
+The final daily native-vision runtime adds a four-commit delta:
+
+```powershell
+$dailyPatches = Get-ChildItem <research-repo>\patches\llama.cpp\73b803-to-4cae4d\*.patch | Sort-Object Name
+git am --committer-date-is-author-date $dailyPatches.FullName
+```
+
+The reconstructed daily tree must be
+`95417c378aee171d51ac09808c16f0b33b0fbdc0`. The measured source commit was
+`4cae4d05122198c65895ee714780f4426aa76684`, used for build 10696 and the daily
+native-vision receipt. Its matched warm text row was 15.82 tok/s, while the
+first request after a full unload took 267.99 seconds.
+
+The occupied-60K 20.253 tok/s qualification uses a separate runtime at
+`c9d0b6139b2a312af70c25e1b05974ee3ddcf1ce`. Reconstruct it with
+`patches/llama.cpp/73b803-to-c9d0-occupied60k/` and the exact public-safe
+`profiles/q3ple_occupied_61440_pair.json` configuration. It uses a 1.488 GB
+shared-tensor sidecar rather than the daily route's promoted 2.20 GB sidecar.
 
 ## 5. Find the 16K throughput profile
 
@@ -191,15 +220,21 @@ run because the target-first gate did not pass.
 
 ## 10. Daily operating profile
 
-The practical profile allocates 81,920 tokens, uses `n_cpu_moe=48`, a 37 GiB
-working-set cap, Q4_0 target and draft KV, one persistent slot, and explicit
-target-only or MTP startup modes. It keeps roughly 21,920 tokens after a 60K
-state for subsequent prompts, tool output, and generation.
+The current daily route allocates 65,536 tokens, uses one slot, caps the model
+working set at 34 GiB, keeps Q4_0 target and draft KV, and loads the 904 MB F16
+vision projector on CPU. It runs on a discrete RTX 5070 with separate DDR4 and
+NVMe backing; no unified-memory hardware is involved.
 
-Use `profiles/q3ple_daily_80k.json` and
-`scripts/q3ple_daily_profile.py`. MTP is never a silent retry after a partial or
-incorrect generation. Correctness-sensitive work should launch target-only
-before generation.
+The localhost gateway starts with the model unloaded, launches the exact pinned
+profile on the first valid request, and unloads the owned model after 30 idle
+minutes. The same `/v1/chat/completions` route accepts text and inline images.
+Each image receives exactly 1,024 context tokens. Request limits are four
+images, 4 MiB per image, and 8 MiB total decoded image data.
+
+Use `profiles/q3ple_dsh_daily_64k_mtp.json`,
+`scripts/q3ple_daily_profile.py`, and `scripts/q3ple_dsh_gateway.py`. See the
+[daily native-vision guide](Q3PLE_DAILY_NATIVE_VISION.md). MTP is never a silent
+retry after partial output or an incorrect generation.
 
 ## 11. What to reproduce
 
@@ -219,9 +254,12 @@ demo and a dependable runtime.
 ## Evidence map
 
 - [Canonical 59,750-token report](community/Q3PLE-CANONICAL-60K-2026-08-31.md)
+- [Qualified 61,440-token report](community/Q3PLE-OCCUPIED-61440-2026-09-06.md)
+- [64K daily native-vision result](../results/DSH-DAILY-NATIVE-VISION-004/RESULT.md)
 - [Hardware and safety floors](HARDWARE.md)
 - [Benchmark protocol](BENCHMARK_PROTOCOL.md)
 - [Daily profile](Q3PLE_DAILY_PROFILE.md)
 - [Runtime patch series](../patches/llama.cpp/cafe-035e227-to-73b803/README.md)
+- [Daily runtime delta](../patches/llama.cpp/73b803-to-4cae4d/README.md)
 - [Third-party provenance](../THIRD_PARTY_NOTICES.md)
 - [Hugging Face model](https://huggingface.co/nmatteo3294/Qwen3.8-Flash-Next-Q3_PLE-MTP-GGUF)

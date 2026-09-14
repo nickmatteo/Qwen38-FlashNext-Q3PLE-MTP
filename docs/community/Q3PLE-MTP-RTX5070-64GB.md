@@ -2,11 +2,23 @@
 
 ## Status
 
-Preliminary reproducibility report, updated 2026-08-30.
+Reproducibility report, updated 2026-09-14.
 
 The short-prompt measurements are real and preserved. The long rows describe allocated context capacity with a 232-token prompt. They do not prove sustained speed at a filled 64K, 80K, 128K, 192K, or 224K working set.
 
 The current learned-MTP runtime is research-grade. The copied all-accepted fixture matches preserved expected hashes, but new rejection-bearing code and prose pairs on the 80K daily-driver allocation do not match target-only output and are not repeat-stable under MTP. The 100% acceptance and exactness claim is therefore fixture-specific, not general.
+
+Two later results extend this report. A 27-request matrix at 61,440 retained
+tokens used three independent processes per condition, returned exact 512-token
+continuations throughout, and measured 19.276
+tok/s target-only, 19.649 tok/s with corrected MTP, and 20.253 tok/s with
+corrected MTP plus paired IQ CPU kernels. Separately, the current 64K daily
+runtime added JIT lifecycle management and native image input on the same
+target/MTP process. The occupied-60K experiment and the daily native-vision
+runtime are different pinned builds; neither number is borrowed across them.
+
+See the [occupied-60K qualification](Q3PLE-OCCUPIED-61440-2026-09-06.md) and
+[daily native-vision result](../../results/DSH-DAILY-NATIVE-VISION-004/RESULT.md).
 
 ## Hardware
 

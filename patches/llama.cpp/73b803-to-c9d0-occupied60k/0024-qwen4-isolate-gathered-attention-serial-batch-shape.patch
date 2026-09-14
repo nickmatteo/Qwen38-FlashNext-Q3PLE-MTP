@@ -1,0 +1,48 @@
+From c9d0b6139b2a312af70c25e1b05974ee3ddcf1ce Mon Sep 17 00:00:00 2001
+From: Nick Matteo <nickmatteo@users.noreply.github.com>
+Date: Sun, 6 Sep 2026 14:10:44 -0400
+Subject: [PATCH 24/24] qwen4: isolate gathered attention serial batch shape
+
+Assisted-by: ChatGPT
+---
+ src/models/qwen4exp.cpp | 27 +++++++++++++++++++++++++++
+ 1 file changed, 27 insertions(+)
+
+diff --git a/src/models/qwen4exp.cpp b/src/models/qwen4exp.cpp
+index bd67a4f88ea83602fae2b2392d41bfd6bd1a484f..3ab03621024df8787e05c30887b63f65581ae524 100644
+--- a/src/models/qwen4exp.cpp
++++ b/src/models/qwen4exp.cpp
+@@ -1158,6 +1158,33 @@ ggml_tensor * llama_model_qwen4exp::graph::build_attn_qsa_gather(
+     // one query per ne3 slice against that token's own n_sel rows
+     ggml_tensor * q = ggml_reshape_4d(ctx0, q_cur, d_k, 1, q_cur->ne[1], nt);
+ 
++    static const bool serial_gather = []() {
++        const char * value = getenv("QWEN38_QSA_GATHER_SERIAL");
++        return value != nullptr && atoi(value) == 1;
++    }();
++    if (serial_gather && ns == 1 && nt >= 2 && nt <= 4 && n_outputs == n_tokens) {
++        ggml_tensor * combined = nullptr;
++        for (int64_t token = 0; token < nt; ++token) {
++            auto slice = [&](ggml_tensor * source) {
++                return ggml_view_4d(ctx0, source, source->ne[0], source->ne[1], source->ne[2], 1,
++                    source->nb[1], source->nb[2], source->nb[3], token*source->nb[3]);
++            };
++            auto * part = ggml_flash_attn_ext(ctx0, slice(q), slice(k_g), slice(v_g), slice(m), kq_scale,
++                hparams.f_max_alibi_bias, hparams.attn_soft_cap ? hparams.f_attn_logit_softcapping : 0.0f);
++            ggml_flash_attn_ext_set_prec(part, GGML_PREC_F32);
++            res->add_fused_node({LLM_FUSED_OP_FLASH_ATTN, part, il});
++            combined = combined ? ggml_concat(ctx0, combined, part, 3) : part;
++        }
++        auto * result = ggml_reshape_2d(ctx0, combined,
++            combined->ne[0]*combined->ne[1], combined->ne[2]*combined->ne[3]);
++        ggml_build_forward_expand(gf, result);
++        if (il == 3) {
++            LLAMA_LOG_INFO("QWEN38_QSA_GATHER_SERIAL active tokens=%lld selected=%lld kv=%lld\n",
++                (long long)nt, (long long)n_sel, (long long)n_kv);
++        }
++        return result;
++    }
++
+     ggml_tensor * cur = ggml_flash_attn_ext(ctx0, q, k_g, v_g, m, kq_scale,
+             hparams.f_max_alibi_bias,
+             hparams.attn_soft_cap ? hparams.f_attn_logit_softcapping : 0.0f);

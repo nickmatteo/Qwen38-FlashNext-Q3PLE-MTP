@@ -1,0 +1,53 @@
+{
+  "name": "gateway-image-measured",
+  "route": "http://127.0.0.1:18092/v1/chat/completions",
+  "model_route_id": "q3ple-fast-80k-mtp",
+  "image_path": "results/VOXELBENCH-VISION-001/inputs/pagoda-reference.png",
+  "image_bytes": 2577017,
+  "request_bytes": 3436329,
+  "max_tokens": 384,
+  "started_utc": "2026-09-14T03:49:58Z",
+  "http_status": 200,
+  "response": {
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "{\"tier_count\":5,\"roof_color\":\"teal\",\"frame_color\":\"red\",\"entry_feature\":\"torii_gate\"}",
+          "reasoning_content": "The user wants a compact JSON with four keys. I need to look carefully at the image. The pagoda has multiple roof tiers. Let me count: top small roof, then descending larger roofs. There appear to be 5 tiers (the text even says \"5 tiers\" at bottom left). Roof color is teal/green/blue. Frame color is red. Entry feature is a torii gate (red gate structure). I'll provide concise values.\n"
+        }
+      }
+    ],
+    "created": 1789357806,
+    "model": "AtomicChat/Qwen3.8-Flash-Next-AD-4.27bpw-Q3_PLE-M64",
+    "system_fingerprint": "b10696-4cae4d051",
+    "object": "chat.completion",
+    "usage": {
+      "completion_tokens": 119,
+      "prompt_tokens": 1024,
+      "total_tokens": 1143,
+      "prompt_tokens_details": {
+        "cached_tokens": 1020
+      }
+    },
+    "id": "chatcmpl-PHPIHxrgBf3K98AqJ5v1P0nffIczlQBW",
+    "timings": {
+      "cache_n": 1020,
+      "prompt_n": 4,
+      "prompt_ms": 288.457,
+      "prompt_per_token_ms": 72.11425,
+      "prompt_per_second": 13.866884838988133,
+      "predicted_n": 119,
+      "predicted_ms": 7472.71,
+      "predicted_per_token_ms": 63.328050847457625,
+      "predicted_per_second": 15.790790757302235,
+      "draft_n": 68,
+      "draft_n_accepted": 56
+    }
+  },
+  "error": null,
+  "wall_seconds": 8.252445799997076,
+  "finished_utc": "2026-09-14T03:50:06Z"
+}

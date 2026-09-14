@@ -1,0 +1,107 @@
+From 4c6d9a72479606443eddf52f48d21223b86c7459 Mon Sep 17 00:00:00 2001
+From: Nick Matteo <nickmatteo@users.noreply.github.com>
+Date: Sat, 5 Sep 2026 15:22:40 -0400
+Subject: [PATCH 16/24] test(server): bound Qwen MTP admission to a fixed KV
+ extent
+
+---
+ tests/test-qwen-kv-boundary.cpp | 20 +++++++++++++++++++
+ tools/server/qwen-kv-boundary.h | 12 ++++++++++++
+ tools/server/server-context.cpp | 34 +++++++++++++++++++++++++++++++++
+ 3 files changed, 66 insertions(+)
+ create mode 100644 tests/test-qwen-kv-boundary.cpp
+ create mode 100644 tools/server/qwen-kv-boundary.h
+
+diff --git a/tests/test-qwen-kv-boundary.cpp b/tests/test-qwen-kv-boundary.cpp
+new file mode 100644
+index 0000000000000000000000000000000000000000..91d25a3ffac8751119ea6c4f61dffa0537008409
+--- /dev/null
++++ b/tests/test-qwen-kv-boundary.cpp
+@@ -0,0 +1,20 @@
++#include "qwen-kv-boundary.h"
++#include <cstdio>
++int main() {
++    size_t cases = 0;
++    for (int64_t pos = 0; pos <= 81920; ++pos) {
++        for (size_t count = 0; count <= 16; ++count) {
++            const size_t got = qwen38_boundary_draft_count(pos, count, true);
++            if (got > count || pos / 256 != (pos + got) / 256) { return 1; }
++            if (got < count && pos / 256 == (pos + got + 1) / 256) { return 2; }
++            if (qwen38_boundary_draft_count(pos, count, false) != 0) { return 3; }
++            ++cases;
++        }
++    }
++    if (qwen38_boundary_draft_count(-1, 3, true) != 0 ||
++        qwen38_boundary_draft_count(254, 3, true) != 1 ||
++        qwen38_boundary_draft_count(255, 3, true) != 0 ||
++        qwen38_boundary_draft_count(256, 3, true) != 3) { return 4; }
++    std::printf("BOUNDARY_CAP_PASS cases=%zu\n", cases);
++    return 0;
++}
+diff --git a/tools/server/qwen-kv-boundary.h b/tools/server/qwen-kv-boundary.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..7576153aa63baf4d0feb2e794b436f5775f04b9f
+--- /dev/null
++++ b/tools/server/qwen-kv-boundary.h
+@@ -0,0 +1,12 @@
++#pragma once
++#include <algorithm>
++#include <cstddef>
++#include <cstdint>
++
++// A verification batch contains the sampled token followed by admitted drafts.
++// Keep its last input in the same 256-cell padded KV extent as its first.
++inline size_t qwen38_boundary_draft_count(int64_t next_pos, size_t proposed, bool supported) {
++    if (!supported || next_pos < 0) { return 0; }
++    const size_t remaining = 255 - static_cast<size_t>(next_pos % 256);
++    return std::min(proposed, remaining);
++}
+diff --git a/tools/server/server-context.cpp b/tools/server/server-context.cpp
+index 18b20928502ff7d84762252d31cc06f44ab442e3..429e2495f2589b929a51ebde2f7c2a766fdce14e 100644
+--- a/tools/server/server-context.cpp
++++ b/tools/server/server-context.cpp
+@@ -1,3 +1,4 @@
++#include "qwen-kv-boundary.h"
+ #include <cstdlib>
+ #include "server-context.h"
+ #include "server-chat.h"
+@@ -3080,6 +3081,39 @@ private:
+             }
+         }
+ 
++        // Default-off admission guard: do not change the target's padded KV
++        // reduction extent part way through a speculative verification batch.
++        static const bool boundary_guard = [] {
++            const char * value = std::getenv("QWEN38_SPEC_KV_BOUNDARY");
++            return value != nullptr && std::atoi(value) == 1;
++        }();
++        if (boundary_guard && spec) {
++            char arch[64] = {};
++            llama_model_meta_val_str(llama_get_model(ctx_tgt), "general.architecture", arch, sizeof(arch));
++            if (std::string(arch) == "qwen4exp") {
++                iterate(generating, [&](server_slot & slot) {
++                    if (slot.spec_draft.empty()) { return; }
++                    const int64_t pos = slot.prompt.tokens.pos_next();
++                    const int64_t cached_max = llama_memory_seq_pos_max(llama_get_memory(ctx_tgt), slot.id);
++                    const bool supported = params_base.n_parallel == 1 &&
++                        !slot.prompt.tokens.has_mtmd && !slot.truncated &&
++                        pos == slot.prompt.n_tokens() && cached_max + 1 == pos;
++                    const size_t before = slot.spec_draft.size();
++                    const size_t after = qwen38_boundary_draft_count(pos, before, supported);
++                    slot.spec_draft.resize(after);
++                    if (before != after && server_spec_parity_trace_enabled()) {
++                        const json event = {
++                            {"event", "kv_boundary_guard"}, {"seq_id", slot.id},
++                            {"logical_pos", pos}, {"cached_max", cached_max},
++                            {"draft_before", before}, {"draft_after", after},
++                            {"quantum", 256}, {"supported", supported},
++                        };
++                        SRV_INF("mtp_trace_json %s\n", event.dump().c_str());
++                    }
++                });
++            }
++        }
++
+         // make checkpoints if needed
+         iterate(drafting, [&](server_slot & slot) {
+             auto & draft = slot.spec_draft;

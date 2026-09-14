@@ -1,0 +1,85 @@
+{
+  "schema": 1,
+  "profile_id": "q3ple_occupied_61440_pair",
+  "status": "EXPERIMENTAL",
+  "description": "Exact paired-IQ occupied-context qualification profile; research reproduction only, not the daily route.",
+  "source_commit": "c9d0b6139b2a312af70c25e1b05974ee3ddcf1ce",
+  "artifacts": {
+    "target": {
+      "first_shard": "artifacts/models/AtomicChat/Qwen3.8-Flash-Next-AD-4.27bpw-Q3_PLE-M64/Qwen3.8-Flash-Next-AD-4.27bpw-Q3_PLE-M64-00001-of-00033.gguf",
+      "first_shard_sha256": "D160140839732E03F0FDAD1BF27B7512FFBEE4DC411BCE0F986367A005D9A726",
+      "shard_count": 33,
+      "aggregate_bytes": 78525318176
+    },
+    "sidecar": {
+      "path": "artifacts/models/Qwen3.8-Flash-Next-MTP-Shared/mtp-borrow-target-embedding-head.gguf",
+      "sha256": "E71A113150FBC081D79DB4BCF962952AE18E160A0F8B70DCE66F2ACD531F1C29",
+      "bytes": 1487721536
+    }
+  },
+  "runtime_bundle_sha256": {
+    "ggml-base.dll": "B5327FE6F78BD868E713704B7C583B8074688D242F77B5F694E52CEE0D8F1C7F",
+    "ggml-cpu.dll": "9B811C77346123940D25C7BF6B25E2F7BE1FEEE811D7F2A745C69CA8357179DB",
+    "ggml-cuda.dll": "E9C27D0F41E222D5747A8E885180DED2D8B73D32D4A618FE02B869C9334BDC6D",
+    "ggml.dll": "26F396F142587940C19EB569FEF2DADE8EEF8C6C26CF8DDBA898A9FD24D76DDA",
+    "llama-common.dll": "C0FB5C4B68518399F6BA84FFFBF76EFD9DF896219651F5253272E4EA1956DA6E",
+    "llama-server-impl.dll": "3929D90E9372AE2ECACB31243C7DC5268E90F8ECAB00DD2C95941EE9B13129B0",
+    "llama-server.exe": "9D73CC268F16D0C1E7D61E89F7FB9E35806F1BA0CC3D74D502DEBF250E035ABD",
+    "llama.dll": "D72F7FE460A75CFB7C86B30A88DC623CC1AFA231981573E2BEA3E0AF74FC8FA9",
+    "mtmd.dll": "B1308F4A97B54DB8FC0457CA1CD4B7D6E71895DCEE0A1E3428637AE2EFB651F4"
+  },
+  "server_args": [
+    "--ctx-size", "65536", "--parallel", "1", "--threads", "11",
+    "--threads-batch", "11", "--batch-size", "2048", "--ubatch-size", "256",
+    "--cache-type-k", "q4_0", "--cache-type-v", "q4_0", "--flash-attn", "on",
+    "--load-mode", "mmap", "--tensor-read-lazy", "on-direct",
+    "--n-gpu-layers", "99", "--fit", "off", "--fit-target", "1024",
+    "--n-cpu-moe", "47", "--split-mode", "none", "--device", "CUDA0",
+    "--cache-ram", "0", "--no-warmup", "--jinja", "--no-context-shift",
+    "--reasoning", "on", "--reasoning-effort", "medium",
+    "--reasoning-budget", "1536", "--reasoning-format", "deepseek",
+    "--no-reasoning-preserve", "--override-tensor", "per_layer_token_embd\\.weight=CPU"
+  ],
+  "mtp": {
+    "spec_type": "draft-mtp",
+    "spec_draft_n_max": 3,
+    "spec_draft_p_min": 0.75,
+    "spec_draft_device": "CUDA0",
+    "spec_draft_ngl": 99,
+    "spec_draft_threads": 8,
+    "spec_draft_threads_batch": 8,
+    "spec_draft_type_k": "q4_0",
+    "spec_draft_type_v": "q4_0",
+    "spec_draft_override_tensor": "^token_embd\\.weight$=CUDA0,^output\\.weight$=CUDA0,^blk\\.48\\..*=CUDA0"
+  },
+  "environment": {
+    "GGML_CUDA_DISABLE_FUSION": "0",
+    "GGML_CUDA_MOE_CACHE_MB": "0",
+    "LLAMA_SPEC_TIMING": "0",
+    "QWEN38_BF16_INDEXER_MMVF": "1",
+    "QWEN38_CPU_EXPERT_PAIR": "1",
+    "QWEN38_CPU_EXPERT_TRACE": "0",
+    "QWEN38_FA_NARROW_Q4": "1",
+    "QWEN38_MTP_CHAIN": "0",
+    "QWEN38_MTP_DRAFT_EXPERT_OFFLOAD": "1",
+    "QWEN38_MTP_SHARE_TENSORS": "1",
+    "QWEN38_MTP_UBATCH": "64",
+    "QWEN38_QSA_GATHER_SERIAL": "1",
+    "QWEN38_ROUTER_F32_MMVF4": "1",
+    "QWEN38_SHEXP_F32_MMVF4": "1",
+    "QWEN38_SPEC_KV_BOUNDARY": "1",
+    "QWEN38_TOPK_REFERENCE512": "1",
+    "QWEN38_UNFUSED_TOPK512_10": "0",
+    "QWEN38_WORKING_SET_CAP_GIB": "37"
+  },
+  "qualification": {
+    "retained_tokens": 61440,
+    "new_prompt_tokens": 87,
+    "returned_tokens": 512,
+    "independent_processes_per_condition": 3,
+    "requests_per_process": 3,
+    "conditions": 3,
+    "total_requests": 27,
+    "context_shift": false
+  }
+}

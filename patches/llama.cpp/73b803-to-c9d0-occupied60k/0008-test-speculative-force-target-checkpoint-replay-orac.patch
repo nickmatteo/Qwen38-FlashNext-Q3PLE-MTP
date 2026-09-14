@@ -1,0 +1,47 @@
+From 171ae9a2e31e13dd351def90d82109030dad2150 Mon Sep 17 00:00:00 2001
+From: Nick Matteo <nickmatteo@users.noreply.github.com>
+Date: Fri, 4 Sep 2026 16:06:10 -0400
+Subject: [PATCH 08/24] test(speculative): force target checkpoint replay
+ oracle
+
+---
+ tools/server/server-context.cpp | 12 +++++++++++-
+ 1 file changed, 11 insertions(+), 1 deletion(-)
+
+diff --git a/tools/server/server-context.cpp b/tools/server/server-context.cpp
+index 9ccb2de04502edc68999359dac1b7a6d98f1fe54..2fa8b0c9c033768e1d751af3d27aafe7b80cbd6a 100644
+--- a/tools/server/server-context.cpp
++++ b/tools/server/server-context.cpp
+@@ -47,6 +47,14 @@ static bool server_spec_parity_trace_enabled() {
+     return enabled;
+ }
+ 
++static bool server_spec_force_target_ckpt_replay_enabled() {
++    static const bool enabled = []() {
++        const char * value = std::getenv("LLAMA_SPEC_FORCE_TARGET_CKPT_REPLAY");
++        return value != nullptr && std::atoi(value) > 0;
++    }();
++    return enabled;
++}
++
+ static uint64_t server_spec_parity_trace_event_id = 0;
+ 
+ static constexpr uint32_t SERVER_SLOT_DRAFT_MAGIC        = 0x54464453U; // "SDFT"
+@@ -3006,7 +3014,8 @@ private:
+             if (spec) {
+                 common_speculative_get_draft_params(spec.get(), slot.id).drafting = false;
+ 
+-                const bool use_ckpt_tgt = ctx_tgt_seq_rm_type == COMMON_CONTEXT_SEQ_RM_TYPE_FULL;
++                const bool use_ckpt_tgt = server_spec_force_target_ckpt_replay_enabled() ||
++                                          ctx_tgt_seq_rm_type == COMMON_CONTEXT_SEQ_RM_TYPE_FULL;
+                 const bool use_ckpt_dft = ctx_dft_seq_rm_type == COMMON_CONTEXT_SEQ_RM_TYPE_FULL;
+ 
+                 const int n_draft_max = slot.get_n_draft_max();
+@@ -4073,6 +4082,7 @@ private:
+                 const uint32_t n_rollback = slot.spec_draft.size() + 1 - accepted.size();
+ 
+                 const bool use_ckpt_tgt =
++                    server_spec_force_target_ckpt_replay_enabled() ||
+                     ctx_tgt_seq_rm_type == COMMON_CONTEXT_SEQ_RM_TYPE_FULL ||
+                     (ctx_tgt_seq_rm_type == COMMON_CONTEXT_SEQ_RM_TYPE_RS && n_rollback > llama_n_rs_seq(ctx_tgt));
+ 

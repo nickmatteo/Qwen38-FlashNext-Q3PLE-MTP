@@ -1,0 +1,23 @@
+From 30ecc957897a35136c3b530cd0ac394eaa38433a Mon Sep 17 00:00:00 2001
+From: Nick Matteo <nickmatteo@users.noreply.github.com>
+Date: Sun, 6 Sep 2026 02:22:56 -0400
+Subject: [PATCH 23/24] cpu: escape paired-execution diagnostic newline
+
+---
+ ggml/src/ggml-cpu/ggml-cpu.c | 3 +--
+ 1 file changed, 1 insertion(+), 2 deletions(-)
+
+diff --git a/ggml/src/ggml-cpu/ggml-cpu.c b/ggml/src/ggml-cpu/ggml-cpu.c
+index 442613758b1360d997d64e6cf824352aa2ec6228..ed09a4f724d093a67af1fdb2341a60e61f97261f 100644
+--- a/ggml/src/ggml-cpu/ggml-cpu.c
++++ b/ggml/src/ggml-cpu/ggml-cpu.c
+@@ -1500,8 +1500,7 @@ static void ggml_compute_forward_mul_mat_id_one_chunk(
+             static atomic_int noted[3] = {0, 0, 0};
+             const int which = type == GGML_TYPE_IQ2_S ? 0 : type == GGML_TYPE_IQ3_S ? 1 : 2;
+             if (atomic_fetch_add_explicit(&noted[which], 1, memory_order_relaxed) == 0) {
+-                fprintf(stderr, "QWEN38_CPU_EXPERT_PAIR exercised type=%s width=%lld rows=%lld
+-",
++                fprintf(stderr, "QWEN38_CPU_EXPERT_PAIR exercised type=%s width=%lld rows=%lld\n",
+                     ggml_type_name(type), (long long) ids->ne[1], (long long) (ir1_end-ir1_start));
+             }
+         }

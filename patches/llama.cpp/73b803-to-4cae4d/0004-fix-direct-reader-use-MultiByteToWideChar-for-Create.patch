@@ -1,0 +1,45 @@
+From 4cae4d05122198c65895ee714780f4426aa76684 Mon Sep 17 00:00:00 2001
+From: Nick Matteo <nickmatteo@users.noreply.github.com>
+Date: Thu, 3 Sep 2026 13:26:24 -0400
+Subject: [PATCH 4/4] fix(direct-reader): use MultiByteToWideChar for
+ CreateFileW
+
+---
+ src/llama-model.cpp | 12 ++++++++----
+ 1 file changed, 8 insertions(+), 4 deletions(-)
+
+diff --git a/src/llama-model.cpp b/src/llama-model.cpp
+index 0837dedb6..f15259d20 100644
+--- a/src/llama-model.cpp
++++ b/src/llama-model.cpp
+@@ -1840,11 +1840,16 @@ const llama_lazy_reader * llama_model_base::load_lazy_reader(llama_model_loader
+ 
+     const std::string & fname = ml.files[w->idx]->name();
+ #ifdef _WIN32
++    int wlen = ::MultiByteToWideChar(CP_UTF8, 0, fname.c_str(), -1, NULL, 0);
++    std::wstring wpath;
++    if (wlen > 0) {
++        wpath.resize(wlen);
++        ::MultiByteToWideChar(CP_UTF8, 0, fname.c_str(), -1, &wpath[0], wlen);
++    }
+     HANDLE hFile = INVALID_HANDLE_VALUE;
+-    wchar_t * wfname = ggml_mbstowcs(fname.c_str());
+-    if (wfname) {
++    if (!wpath.empty()) {
+         hFile = ::CreateFileW(
+-            wfname,
++            wpath.c_str(),
+             GENERIC_READ,
+             FILE_SHARE_READ,
+             NULL,
+@@ -1852,7 +1857,6 @@ const llama_lazy_reader * llama_model_base::load_lazy_reader(llama_model_loader
+             FILE_ATTRIBUTE_NORMAL | FILE_FLAG_RANDOM_ACCESS | FILE_FLAG_OVERLAPPED,
+             NULL
+         );
+-        GGML_FREE(wfname);
+     }
+     if (hFile == INVALID_HANDLE_VALUE) {
+         LLAMA_LOG_WARN("%s: could not open %s for direct reads (Win32 error %lu), using lazy mmap reads\n",
+-- 
+2.40.0.windows.1
+

@@ -31,6 +31,21 @@ That candidate adds paired target/`.dft` persistence on top of the frozen
 performance runtime. The exact source reconstruction is published as a
 36-commit patch series.
 
+The later daily native-vision path uses build 10696 at commit
+`4cae4d05122198c65895ee714780f4426aa76684`. It adds the published four-commit
+direct-reader delta, uses a 34 GiB working-set cap, and loads a 904,003,520-byte
+F16 projector on CPU. A measured image turn ended at 10,394 MiB used / 1,550
+MiB free VRAM and 7.63 GiB available system RAM. This remains a discrete-memory
+layout: 12 GB GPU VRAM, separate 64 GB DDR4, and NVMe mapping.
+
+The strongest later occupied-context performance result is a separate
+experimental runtime. At 61,440 retained tokens it measured 19.276 tok/s
+target-only, 19.649 tok/s corrected MTP, and 20.253 tok/s corrected MTP with
+paired IQ CPU kernels. All 27 qualified requests returned the same exact
+512-token vector. Each condition used three independent processes. That runtime
+used a separate 1,487,721,536-byte shared-tensor sidecar and was not promoted
+as the daily build.
+
 ## Measured placement envelope
 
 | Allocation | Target `n-cpu-moe` | Warm decode | Minimum available RAM | Minimum free VRAM |

@@ -1,0 +1,177 @@
+From f234ec6b963ed57813b163cd326e4937abbea310 Mon Sep 17 00:00:00 2001
+From: Nick Matteo <nickmatteo@users.noreply.github.com>
+Date: Fri, 4 Sep 2026 00:05:47 -0400
+Subject: [PATCH 05/24] perf(speculative): expose MTP phase timing diagnostics
+
+---
+ common/speculative.cpp          | 20 +++++++++
+ tools/server/server-context.cpp | 72 +++++++++++++++++++++++++++++++++
+ 2 files changed, 92 insertions(+)
+
+diff --git a/common/speculative.cpp b/common/speculative.cpp
+index d80e5ca89f3c5180a30e376cb731047ba01e7f0e..9c93ab7946ca026fae6778218a0609f2a4107fea 100644
+--- a/common/speculative.cpp
++++ b/common/speculative.cpp
+@@ -14,6 +14,7 @@
+ 
+ #include <algorithm>
+ #include <cassert>
++#include <cstdlib>
+ #include <cstring>
+ #include <iomanip>
+ #include <map>
+@@ -29,6 +30,14 @@
+ #define SPEC_VOCAB_MAX_SIZE_DIFFERENCE  128
+ #define SPEC_VOCAB_CHECK_START_TOKEN_ID 5
+ 
++static bool common_speculative_timing_enabled() {
++    static const bool enabled = []() {
++        const char * value = std::getenv("LLAMA_SPEC_TIMING");
++        return value != nullptr && std::atoi(value) > 0;
++    }();
++    return enabled;
++}
++
+ const std::map<std::string, common_speculative_type> common_speculative_type_from_name_map = {
+     {"none",          COMMON_SPECULATIVE_TYPE_NONE},
+     {"draft-simple",  COMMON_SPECULATIVE_TYPE_DRAFT_SIMPLE},
+@@ -1515,7 +1524,18 @@ struct common_speculative_impl_draft_mtp : public common_speculative_impl {
+                     llama_set_nextn_layer_offset(ctx_dft, head);
+                 }
+ 
++                const bool timing_enabled = common_speculative_timing_enabled();
++                const int32_t timed_batch_tokens = batch.n_tokens;
++                const int64_t t_catchup_start = timing_enabled ? ggml_time_us() : 0;
+                 const int32_t rc = llama_decode(ctx_dft, batch);
++                if (rc == 0 && timing_enabled) {
++                    // The catch-up decode is normally allowed to stay asynchronous until
++                    // the next draft consumes its state. Synchronize only in the explicit
++                    // diagnostic lane so its cost cannot bleed into the following draft.
++                    llama_synchronize(ctx_dft);
++                    SPC_INF("mtp_timing_json {\"phase\":\"draft_catchup\",\"head\":%d,\"batch_tokens\":%d,\"elapsed_us\":%" PRId64 "}\n",
++                            head, timed_batch_tokens, ggml_time_us() - t_catchup_start);
++                }
+                 if (rc != 0) {
+                     SPC_ERR("llama_decode(ctx_dft) head=%d failed rc=%d (pos=%d)\n",
+                             head, (int) rc, (int) batch_in.pos[0]);
+diff --git a/tools/server/server-context.cpp b/tools/server/server-context.cpp
+index 1ecafb4cc4880085f61636d8e027c4a5835c52b3..ea30e5f844e6180bac4fd65361215667c3fd8842 100644
+--- a/tools/server/server-context.cpp
++++ b/tools/server/server-context.cpp
+@@ -867,6 +867,7 @@ private:
+     int trace = 0;        // env: LLAMA_TRACE
+     int slots_debug = 0;  // env: LLAMA_SERVER_SLOTS_DEBUG
+     int slots_n_diff = 0; // env: LLAMA_SERVER_SLOTS_N_DIFF
++    int spec_timing = 0;  // env: LLAMA_SPEC_TIMING
+ 
+     int n_empty_consecutive = 0;
+ 
+@@ -1262,6 +1263,13 @@ private:
+             if (slots_n_diff) {
+                 SRV_WRN("LLAMA_SERVER_SLOTS_N_DIFF = %d\n", slots_n_diff);
+             }
++
++            const char * LLAMA_SPEC_TIMING = getenv("LLAMA_SPEC_TIMING");
++            spec_timing = LLAMA_SPEC_TIMING ? atoi(LLAMA_SPEC_TIMING) : 0;
++
++            if (spec_timing > 0) {
++                SRV_WRN("LLAMA_SPEC_TIMING = %d (experimental per-cycle timing enabled)\n", spec_timing);
++            }
+         }
+ 
+         // the update_slots() logic will always submit a maximum of n_batch or n_parallel tokens
+@@ -3030,9 +3038,25 @@ private:
+ 
+         // generate the actual drafts (if any)
+         if (!drafting.empty()) {
++            const int64_t t_draft_start = spec_timing > 0 ? ggml_time_us() : 0;
+             queue_tasks.yield_to_queue([&]() {
+                 common_speculative_draft(spec.get());
+             });
++
++            if (spec_timing > 0) {
++                const int64_t t_draft_us = ggml_time_us() - t_draft_start;
++                for (const auto * slot : drafting) {
++                    const json event = {
++                        {"phase",          "draft"},
++                        {"slot_id",        slot->id},
++                        {"context_tokens", slot->prompt.n_tokens()},
++                        {"draft_width",    slot->spec_draft.size()},
++                        {"drafting_slots", drafting.size()},
++                        {"elapsed_us",     t_draft_us},
++                    };
++                    SRV_INF("mtp_timing_json %s\n", event.dump().c_str());
++                }
++            }
+         }
+ 
+         // make checkpoints if needed
+@@ -3678,13 +3702,32 @@ private:
+         }
+ 
+         bool has_output = false;
++        bool generation_only = true;
+         for (int i = off; i < off + batch_view.n_tokens; ++i) {
+             has_output |= batch.tokens[i].output;
++            generation_only &= !batch.tokens[i].is_prompt;
++        }
++
++        std::vector<std::pair<int32_t, int32_t>> verification_slots;
++        if (spec_timing > 0 && generation_only) {
++            for (const auto & slot : slots) {
++                if (slot.spec_i_batch.empty()) {
++                    continue;
++                }
++
++                const bool inside_view = std::all_of(
++                        slot.spec_i_batch.begin(), slot.spec_i_batch.end(),
++                        [&](int32_t i) { return i >= off && i < off + batch_view.n_tokens; });
++                if (inside_view) {
++                    verification_slots.emplace_back(slot.id, (int32_t) slot.spec_i_batch.size());
++                }
++            }
+         }
+ 
+         // yield to the queue, so we can still handle metrics tasks while decoding
+         // note: the sync is done here too, so that the wait is also covered by the yield
+         int ret = 0;
++        const int64_t t_target_start = spec_timing > 0 && generation_only ? ggml_time_us() : 0;
+         queue_tasks.yield_to_queue([&]() {
+             ret = llama_decode(ctx_tgt, batch_view);
+             if (ret == 0 && has_output) {
+@@ -3692,6 +3735,35 @@ private:
+             }
+         });
+ 
++        if (spec_timing > 0 && generation_only) {
++            const int64_t t_target_us = ggml_time_us() - t_target_start;
++            if (verification_slots.empty()) {
++                const json event = {
++                    {"phase",             "target_decode"},
++                    {"spec_enabled",      spec != nullptr},
++                    {"verification",      false},
++                    {"batch_width",       batch_view.n_tokens},
++                    {"elapsed_us",        t_target_us},
++                };
++                SRV_INF("mtp_timing_json %s\n", event.dump().c_str());
++            } else {
++                for (const auto & [slot_id, verify_width] : verification_slots) {
++                    const auto & slot = slots[slot_id];
++                    const json event = {
++                        {"phase",             "target_decode"},
++                        {"slot_id",           slot_id},
++                        {"context_tokens",    slot.prompt.n_tokens()},
++                        {"spec_enabled",      true},
++                        {"verification",      true},
++                        {"batch_width",       verify_width},
++                        {"combined_batch",    batch_view.n_tokens},
++                        {"elapsed_us",        t_target_us},
++                    };
++                    SRV_INF("mtp_timing_json %s\n", event.dump().c_str());
++                }
++            }
++        }
++
+         if (ret != 0) {
+             {
+                 std::string err;

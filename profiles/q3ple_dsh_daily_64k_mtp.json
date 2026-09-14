@@ -1,0 +1,220 @@
+{
+  "schema": 1,
+  "profile_id": "q3ple_dsh_daily_64k_mtp",
+  "status": "EXPERIMENTAL",
+  "model_id": "q3ple-fast-80k-mtp",
+  "description": "Daily single-slot 64K Q3_PLE + MTP profile with native image input, Windows direct PLE prefill, and DSH reasoning.",
+  "policy": {
+    "default_mode": "mtp",
+    "allowed_modes": [
+      "mtp",
+      "target"
+    ],
+    "purpose": "single-slot 64K daily agent use with restartable state, learned MTP, and native image input"
+  },
+  "reasoning": {
+    "enabled": true,
+    "effort": "low",
+    "budget_tokens": 512,
+    "format": "deepseek",
+    "preserve": false
+  },
+  "agent_budget": {
+    "max_response_tokens": 1024,
+    "expected_tool_turn_tokens": 128
+  },
+  "runtime": {
+    "candidate": true,
+    "commit": "4cae4d05122198c65895ee714780f4426aa76684",
+    "worktree": "workstreams/llama.cpp-q3ple-fast-mtp",
+    "executable": "workstreams/llama.cpp-q3ple-fast-mtp/build-win-cuda-q3ple-fast-mtp/bin/llama-server.exe",
+    "bundle": {
+      "ggml.dll": "CDEFCF6C490D9C94E1551420B04A27FDF8281C41B364B7A9827A005705DA3F8F",
+      "ggml-base.dll": "AF6849F0959F32D76F67CB18D0B177FB14B3563D8DBBE64BE1EDF62B5828081A",
+      "ggml-cpu.dll": "21B4C6FA6A4E0029B127456AFF3FBA63D13EEB104ECAEC1903395F2D9DBABE61",
+      "ggml-cuda.dll": "6BA4E2B4937C28B494843BEAF4091DD9B9BFBF9E902F49635F86CEA634085CF1",
+      "llama.dll": "C432D382706508D8DC19E8EFDFD37F0374ED2853FAD32830D3E00E85C38D89CD",
+      "llama-common.dll": "B35EB24EC31DB06EC2DBD5CA6139459BB549D40B1B911E8C4CA75DE8001933AE",
+      "llama-server.exe": "2D0D4C1AF9843DC8F148E5870C15BEAA1E02E37A3FD7D5D2705D6A1A7048FD38",
+      "llama-server-impl.dll": "A16C671C475BF7C333B8DF661C0975F15BF0BB25040B82D812C347663D516EED",
+      "mtmd.dll": "8B73B37FE172FCF6939CAEA3379A1DE5D36855F407019A9B953598F26D6AE7A1"
+    }
+  },
+  "artifacts": {
+    "target": {
+      "directory": "artifacts/models/AtomicChat/Qwen3.8-Flash-Next-AD-4.27bpw-Q3_PLE-M64",
+      "first_shard": "artifacts/models/AtomicChat/Qwen3.8-Flash-Next-AD-4.27bpw-Q3_PLE-M64/Qwen3.8-Flash-Next-AD-4.27bpw-Q3_PLE-M64-00001-of-00033.gguf",
+      "first_shard_sha256": "D160140839732E03F0FDAD1BF27B7512FFBEE4DC411BCE0F986367A005D9A726",
+      "shard_count": 33,
+      "aggregate_bytes": 78525318176
+    },
+    "sidecar": {
+      "path": "artifacts/models/Qwen3.8-Flash-Next-MTP-Q4_K_M-FC-HC/mtp-Qwen3.8-Flash-Next-DOWNQ4-FC-HC-OUTQ4.gguf",
+      "sha256": "7E9F2B282DC62534313B30738E0AD114C14E1A58B9C1E7BB9715DCF9C4CA676E",
+      "bytes": 2202883264,
+      "enabled": true
+    },
+    "vision": {
+      "path": "artifacts/models/Qwen3.8-Flash-Next-Vision/Qwen3.8-Flash-Next-mmproj-f16.gguf",
+      "sha256": "AFB86DC1041DFC72C90C510F33FAB52838F01EF8E3C5732666EA44FA28C96ACA",
+      "bytes": 904003520,
+      "enabled": true,
+      "offload": false,
+      "image_min_tokens": 1024,
+      "image_max_tokens": 1024
+    }
+  },
+  "server": {
+    "host": "127.0.0.1",
+    "port": 18098,
+    "ports": {
+      "api": 18098,
+      "health": 18098
+    },
+    "health_path": "/health",
+    "completion_path": "/completion",
+    "slot_count": 1,
+    "slot_id": 0,
+    "slot_save_path": "results/QWEN38-MTP-PROTOTYPE-001/state/q3ple_dsh_daily_64k_mtp/slots",
+    "base_args": [
+      "--model",
+      "{target_first_shard}",
+      "--mmproj",
+      "{mmproj}",
+      "--no-mmproj-offload",
+      "--image-min-tokens",
+      "1024",
+      "--image-max-tokens",
+      "1024",
+      "--host",
+      "127.0.0.1",
+      "--port",
+      "18098",
+      "--ctx-size",
+      "65536",
+      "--parallel",
+      "1",
+      "--threads",
+      "11",
+      "--threads-batch",
+      "11",
+      "--batch-size",
+      "2048",
+      "--ubatch-size",
+      "256",
+      "--cache-type-k",
+      "q4_0",
+      "--cache-type-v",
+      "q4_0",
+      "--flash-attn",
+      "on",
+      "--load-mode",
+      "mmap",
+      "--tensor-read-lazy",
+      "on-direct",
+      "--n-gpu-layers",
+      "auto",
+      "--fit",
+      "on",
+      "--fit-target",
+      "1024",
+      "--n-cpu-moe",
+      "48",
+      "--split-mode",
+      "none",
+      "--device",
+      "CUDA0",
+      "--cache-ram",
+      "0",
+      "--no-warmup",
+      "--jinja",
+      "--reasoning",
+      "on",
+      "--reasoning-effort",
+      "low",
+      "--reasoning-budget",
+      "512",
+      "--reasoning-format",
+      "deepseek",
+      "--no-reasoning-preserve",
+      "--override-tensor",
+      "per_layer_token_embd\\.weight=CPU",
+      "--log-verbosity",
+      "3",
+      "--slot-save-path",
+      "{slot_save_path}"
+    ],
+    "modes": {
+      "mtp": {
+        "enabled": true,
+        "sidecar": "{sidecar}",
+        "spec_type": "draft-mtp",
+        "spec_draft_n_max": 3,
+        "spec_draft_p_min": 0.75,
+        "spec_draft_device": "CUDA0",
+        "spec_draft_ngl": 99,
+        "spec_draft_threads": 8,
+        "spec_draft_threads_batch": 8,
+        "spec_draft_type_k": "q4_0",
+        "spec_draft_type_v": "q4_0",
+        "spec_draft_override_tensor": "^output\\\\.weight$=CUDA0,^blk\\\\.48\\\\..*=CUDA0"
+      },
+      "target": {
+        "enabled": true,
+        "spec_type": "none",
+        "fallback_note": "Safe target-only baseline; no implicit fallback."
+      }
+    }
+  },
+  "environment": {
+    "QWEN38_MTP_UBATCH": "64",
+    "QWEN38_MTP_DRAFT_EXPERT_OFFLOAD": "1",
+    "GGML_CUDA_MOE_CACHE_MB": "0",
+    "QWEN38_WORKING_SET_CAP_GIB": "34"
+  },
+  "safety": {
+    "hard_ram_available_bytes": 6442450944,
+    "hard_gpu_free_mib": 768,
+    "daily_gpu_free_mib": 1024,
+    "max_owned_rss_bytes": 53687091200,
+    "max_swap_growth_bytes": 1073741824,
+    "working_set_cap_bytes": 36507222016,
+    "health_timeout_seconds": 300,
+    "request_timeout_seconds": 7200
+  },
+  "client_contract": {
+    "id_slot": 0,
+    "cache_prompt": true,
+    "parallel": 1,
+    "vision": {
+      "enabled": true,
+      "max_images": 4,
+      "max_image_bytes": 4194304,
+      "max_total_image_bytes": 8388608,
+      "tokens_per_image": 1024,
+      "accepted_media_types": [
+        "image/jpeg",
+        "image/png",
+        "image/webp",
+        "image/gif"
+      ]
+    },
+    "required_extra_body": {
+      "id_slot": 0,
+      "cache_prompt": true
+    }
+  },
+  "state": {
+    "directory": "results/QWEN38-MTP-PROTOTYPE-001/state/q3ple_dsh_daily_64k_mtp",
+    "latest_pointer": "latest.json",
+    "manifest_suffix": ".manifest.json",
+    "slot_suffix": ".slot.bin",
+    "draft_suffix": ".dft"
+  },
+  "candidate_of": "q3ple_dsh_daily_80k_mtp",
+  "context_candidate": {
+    "baseline_profile_id": "q3ple_dsh_daily_80k_mtp",
+    "baseline_ctx_size": 81920,
+    "ctx_size": 65536
+  }
+}

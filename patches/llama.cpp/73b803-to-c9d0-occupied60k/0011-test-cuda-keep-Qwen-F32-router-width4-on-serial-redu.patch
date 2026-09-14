@@ -1,0 +1,38 @@
+From 2e929da475b4c069f6b40fa8f538ecf3ca707169 Mon Sep 17 00:00:00 2001
+From: Nick Matteo <nickmatteo@users.noreply.github.com>
+Date: Fri, 4 Sep 2026 18:23:43 -0400
+Subject: [PATCH 11/24] test(cuda): keep Qwen F32 router width4 on serial
+ reduction family
+
+Assisted-by: ChatGPT
+---
+ ggml/src/ggml-cuda/mmvf.cu | 16 ++++++++++++++++
+ 1 file changed, 16 insertions(+)
+
+diff --git a/ggml/src/ggml-cuda/mmvf.cu b/ggml/src/ggml-cuda/mmvf.cu
+index d7dbc8b992820c5da385575526a85a7524a6aaa2..0872ea72813d59d9396f8404141abdf609f6ed98 100644
+--- a/ggml/src/ggml-cuda/mmvf.cu
++++ b/ggml/src/ggml-cuda/mmvf.cu
+@@ -800,6 +800,22 @@ bool ggml_cuda_should_use_mmvf(enum ggml_type type, int cc, const int64_t * src0
+         }
+     }
+ 
++    // Default-off Qwen Flash router diagnostic. The first 512-way F32 router
++    // differs at width 4 because the stock SM120 dispatch leaves MMVF at width 3.
++    // Keep only this measured shape on the serial reduction family; no wider batch
++    // or other architecture/type is changed. Exact operator parity is tested separately.
++    if (type == GGML_TYPE_F32 && cc == GGML_CUDA_CC_BLACKWELL &&
++        src0_ne[0] == 2560 && src0_ne[1] == 512 &&
++        src0_ne[2] == 1 && src0_ne[3] == 1 && ne11 == 4) {
++        static const bool enabled = []() {
++            const char * value = getenv("QWEN38_ROUTER_F32_MMVF4");
++            return value != nullptr && atoi(value) == 1;
++        }();
++        if (enabled) {
++            return true;
++        }
++    }
++
+     switch (type) {
+         case GGML_TYPE_F32:
+             if (GGML_CUDA_CC_IS_NVIDIA(cc)) {

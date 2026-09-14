@@ -122,15 +122,20 @@ Reconstruct it from the pinned Cafe base:
 git clone https://github.com/quimmedes/cafe-llama.cpp.git
 Set-Location cafe-llama.cpp
 git checkout 035e22731a7fd70b9854b3a2d64ec68e9b1a45d3
-git am <research-repo>\patches\llama.cpp\cafe-035e227-to-73b803\*.patch
-git rev-parse HEAD
+$patches = Get-ChildItem <research-repo>\patches\llama.cpp\cafe-035e227-to-73b803\*.patch | Sort-Object Name
+git am --committer-date-is-author-date $patches.FullName
+git rev-parse 'HEAD^{tree}'
 ```
 
-Expected head:
+Expected source tree:
 
 ```text
-73b803464f25fc9054046728bf2ebed5a372737e
+db305f143fefd46da53db8a8d751b882da38274f
 ```
+
+The measured source commit was
+`73b803464f25fc9054046728bf2ebed5a372737e`. A reconstructed commit ID may
+differ because email patches omit original committer identity.
 
 The measured Windows binary used CUDA 13.1 and SM120a. No prebuilt executable or DLL bundle is distributed in this model repository.
 

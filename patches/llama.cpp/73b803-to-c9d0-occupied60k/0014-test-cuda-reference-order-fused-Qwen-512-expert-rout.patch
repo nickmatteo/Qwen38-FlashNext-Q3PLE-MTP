@@ -1,0 +1,104 @@
+From ccfdaa9327d0a85376837440cada86e5871ae2e9 Mon Sep 17 00:00:00 2001
+From: Nick Matteo <nickmatteo@users.noreply.github.com>
+Date: Sat, 5 Sep 2026 12:53:41 -0400
+Subject: [PATCH 14/24] test(cuda): reference-order fused Qwen 512 expert
+ routing
+
+---
+ ggml/src/ggml-cuda/topk-moe.cu | 76 ++++++++++++++++++++++++++++++++++
+ 1 file changed, 76 insertions(+)
+
+diff --git a/ggml/src/ggml-cuda/topk-moe.cu b/ggml/src/ggml-cuda/topk-moe.cu
+index 159ec67a114a8f47b1851efa33aa625988b30a71..ff3edcb4f3d6c1e9dd401912800d01f8588aea14 100644
+--- a/ggml/src/ggml-cuda/topk-moe.cu
++++ b/ggml/src/ggml-cuda/topk-moe.cu
+@@ -79,6 +79,61 @@ __device__ void sqrt_softplus_warp_inplace(float (&vals)[experts_per_thread], co
+     }
+ }
+ 
++// Reference-order 512-expert/top-10 routing. One block owns a complete row.
++// Match standalone softmax and rank-ordered selected-weight reduction.
++__global__ __launch_bounds__(512, 1) void qwen38_topk_reference512(
++        const float * logits, float * weights, int32_t * ids,
++        float clamp_val, float scale_val) {
++    const int row = blockIdx.x;
++    const int tid = threadIdx.x;
++    __shared__ float reduce_buf[32];
++    __shared__ float probs[512];
++    __shared__ float selected[10];
++    ggml_cuda_pdl_sync();
++    const float value = logits[(size_t) row * 512 + tid];
++    const float max_value = block_reduce<block_reduce_method::MAX, 512>(value, reduce_buf);
++    const float exp_value = expf(value - max_value);
++    __syncthreads();
++    const float exp_sum = block_reduce<block_reduce_method::SUM, 512>(exp_value, reduce_buf);
++    probs[tid] = __fmul_rn(exp_value, 1.0f / exp_sum);
++    __syncthreads();
++    if (tid < 32) {
++        float values[16];
++        #pragma unroll
++        for (int i = 0; i < 16; ++i) {
++            values[i] = probs[tid + i * 32];
++            if (__isnanf(values[i])) { values[i] = -FLT_MAX; }
++        }
++        for (int rank = 0; rank < 10; ++rank) {
++            float best = values[0];
++            int expert = tid;
++            #pragma unroll
++            for (int i = 1; i < 16; ++i) {
++                if (values[i] > best) { best = values[i]; expert = tid + i * 32; }
++            }
++            #pragma unroll
++            for (int mask = 16; mask > 0; mask /= 2) {
++                const float other = __shfl_xor_sync(0xffffffff, best, mask, 32);
++                const int other_id = __shfl_xor_sync(0xffffffff, expert, mask, 32);
++                if (other > best || (other == best && other_id < expert)) {
++                    best = other; expert = other_id;
++                }
++            }
++            if (tid == 0) { selected[rank] = best; ids[(size_t) row * 512 + rank] = expert; }
++            if ((expert & 31) == tid) { values[expert / 32] = -INFINITY; }
++        }
++    }
++    __syncthreads();
++    float selected_sum = tid < 10 ? selected[tid] : 0.0f;
++    selected_sum = block_reduce<block_reduce_method::SUM>(selected_sum, reduce_buf);
++    selected_sum = fmaxf(selected_sum, clamp_val);
++    ggml_cuda_pdl_lc();
++    if (tid < 10) {
++        const float normalized = selected[tid] / selected_sum;
++        weights[(size_t) row * 10 + tid] = __fmul_rn(normalized, scale_val);
++    }
++}
++
+ /*
+     This kernel does the following:
+     1. optionally softmax over the logits per token [n_experts, n_tokens]
+@@ -383,6 +438,27 @@ void ggml_cuda_op_topk_moe(ggml_backend_cuda_context &     ctx,
+     config.with_norm         = with_norm;
+     config.delayed_softmax   = args.delayed_softmax;
+ 
++    // Default-off exact-reference arithmetic, independent of the bypass switch.
++    static const bool reference512 = [] {
++        const char * value = std::getenv("QWEN38_TOPK_REFERENCE512");
++        return value != nullptr && std::atoi(value) == 1;
++    }();
++    if (reference512 && n_experts == 512 && n_expert_used == 10 &&
++        n_rows > 0 && args.softmax && !args.sigmoid && !args.sqrt_softplus &&
++        !args.delayed_softmax && with_norm && bias == nullptr &&
++        ggml_cuda_info().devices[ctx.device].cc == GGML_CUDA_CC_BLACKWELL) {
++        static bool reported = false;
++        if (!reported) {
++            GGML_LOG_INFO("QWEN38_TOPK_REFERENCE512 active softmax=512 rank_norm=1\n");
++            reported = true;
++        }
++        const ggml_cuda_kernel_launch_params launch_params(
++                dim3(n_rows, 1, 1), dim3(512, 1, 1), 0, ctx.stream());
++        ggml_cuda_kernel_launch(qwen38_topk_reference512, launch_params,
++                logits_d, weights_d, ids_d, clamp_val, scale_val);
++        return;
++    }
++
+     if (bias) {
+         launch_topk_moe_cuda<true>(ctx, logits_d, weights_d, ids_d, bias_d, n_rows, n_experts, n_expert_used, clamp_val,
+                              scale_val, config);

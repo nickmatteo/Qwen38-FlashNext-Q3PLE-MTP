@@ -1,0 +1,85 @@
+From a03516823771a0ef681a389ee3c01f525bc703f0 Mon Sep 17 00:00:00 2001
+From: Nick Matteo <nickmatteo@users.noreply.github.com>
+Date: Fri, 4 Sep 2026 09:51:08 -0400
+Subject: [PATCH 07/24] test(speculative): trace ordinary target samples
+
+---
+ common/sampling.cpp             | 10 ++++++++--
+ common/sampling.h               |  5 +++++
+ tools/server/server-context.cpp |  7 +++++++
+ 3 files changed, 20 insertions(+), 2 deletions(-)
+
+diff --git a/common/sampling.cpp b/common/sampling.cpp
+index 9d26d0cbaf830aebe2c9ee4bddee7f5bf9b06791..19291aab74777628b4a13c5c7b29cc1f2f762a21 100644
+--- a/common/sampling.cpp
++++ b/common/sampling.cpp
+@@ -751,7 +751,8 @@ static void common_sampler_trace_verify(
+         llama_token draft_token,
+         llama_token target_token,
+         size_t draft_index,
+-        bool has_draft) {
++        bool has_draft,
++        const char * event = "target_verify") {
+     if (!common_sampler_parity_trace_enabled()) {
+         return;
+     }
+@@ -762,12 +763,13 @@ static void common_sampler_trace_verify(
+         : NAN;
+ 
+     const uint64_t event_id = common_sampler_trace_event_id.fetch_add(1, std::memory_order_relaxed) + 1;
+-    LOG_INF("mtp_trace_json {\"event\":\"target_verify\",\"event_id\":%" PRIu64
++    LOG_INF("mtp_trace_json {\"event\":\"%s\",\"event_id\":%" PRIu64
+             ",\"request_id\":%" PRId64 ",\"seq_id\":%d,\"round\":%" PRIu64
+             ",\"idx\":%d,\"draft_index\":%zu,\"has_draft\":%s"
+             ",\"draft_token\":%d,\"target_token\":%d,\"match\":%s"
+             ",\"raw_top1_id\":%d,\"raw_top1_logit\":%s"
+             ",\"raw_top2_id\":%d,\"raw_top2_logit\":%s,\"raw_margin\":%s}\n",
++            event,
+             event_id,
+             common_sampler_trace_request_id,
+             common_sampler_trace_seq_id,
+@@ -785,6 +787,10 @@ static void common_sampler_trace_verify(
+             common_sampler_trace_float(margin).c_str());
+ }
+ 
++void common_sampler_trace_sample(const common_sampler * gsmpl, int idx, llama_token target_token) {
++    common_sampler_trace_verify(gsmpl, idx, LLAMA_TOKEN_NULL, target_token, 0, false, "target_sample");
++}
++
+ std::vector<llama_token> common_sampler_sample_and_accept_n(struct common_sampler * gsmpl, struct llama_context * ctx, const std::vector<int> & idxs, const llama_tokens & draft, bool grammar_first) {
+     GGML_ASSERT(idxs.size() == draft.size() + 1 && "idxs.size() must be draft.size() + 1");
+ 
+diff --git a/common/sampling.h b/common/sampling.h
+index 7074a17bdb57034174c4cf2c7a2607ed4fd9a6dc..56d6c5531e563ced5328b9e08f4f5de6fd0b51f7 100644
+--- a/common/sampling.h
++++ b/common/sampling.h
+@@ -40,6 +40,11 @@ struct common_sampler;
+ void common_sampler_set_trace_context(int32_t seq_id, uint64_t round, int64_t request_id = -1);
+ void common_sampler_clear_trace_context();
+ 
++// Emit the raw-logit parity record for a token selected through the ordinary
++// (non-verification) sampling path. This is a no-op unless
++// LLAMA_SPEC_PARITY_TRACE=1.
++void common_sampler_trace_sample(const struct common_sampler * gsmpl, int idx, llama_token target_token);
++
+ // llama_sampler API overloads
+ 
+ // note: can mutate params in some cases
+diff --git a/tools/server/server-context.cpp b/tools/server/server-context.cpp
+index 5f329c7db9bf6e6b8a6a3b0cb8f211996fbf3908..9ccb2de04502edc68999359dac1b7a6d98f1fe54 100644
+--- a/tools/server/server-context.cpp
++++ b/tools/server/server-context.cpp
+@@ -3947,6 +3947,13 @@ private:
+                 id = common_sampler_sample(slot.smpl.get(), slot.ctx_tgt, tok_idx);
+             }
+ 
++            if (server_spec_parity_trace_enabled()) {
++                const int64_t trace_request_id = slot.task ? slot.task->id : -1;
++                common_sampler_set_trace_context(slot.id, ++slot.spec_trace_round, trace_request_id);
++                common_sampler_trace_sample(slot.smpl.get(), tok_idx, id);
++                common_sampler_clear_trace_context();
++            }
++
+             slot.i_batch = -1;
+ 
+             common_sampler_accept(slot.smpl.get(), id, true);
